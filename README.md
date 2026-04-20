@@ -8,6 +8,7 @@ custom agent service, minus the domain details *you* supply.
 
 [![Swift 6.0+](https://img.shields.io/badge/swift-6.0+-orange.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%2014%20%7C%20iOS%2017%20%7C%20Linux-blue)](#platforms)
+[![Docs](https://img.shields.io/badge/docs-DocC-blue.svg)](https://murilxaraujo.github.io/KernelHarnessKit/documentation/kernelharnesskit/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
@@ -61,9 +62,10 @@ for try await event in result.events {
 }
 ```
 
-See the [DocC catalog](Sources/KernelHarnessKit/Documentation.docc/) — generate it with
-`swift package generate-documentation --target KernelHarnessKit` — for articles,
-tutorials, and full API reference.
+Full documentation lives at
+[murilxaraujo.github.io/KernelHarnessKit](https://murilxaraujo.github.io/KernelHarnessKit/documentation/kernelharnesskit/) —
+articles, tutorials, and API reference. Generate it locally with
+`swift package generate-documentation --target KernelHarnessKit`.
 
 ## Run the demo
 

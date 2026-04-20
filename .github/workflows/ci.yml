@@ -39,12 +39,3 @@ jobs:
       - name: Test
         run: swift test --parallel
 
-  docs:
-    name: DocC build
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
-      - name: Generate documentation
-        run: swift package generate-documentation --target KernelHarnessKit
