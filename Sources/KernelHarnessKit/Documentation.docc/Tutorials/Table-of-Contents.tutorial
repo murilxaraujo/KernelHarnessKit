@@ -1,0 +1,12 @@
+@Tutorials(name: "KernelHarnessKit") {
+    @Intro(title: "Get started with KernelHarnessKit") {
+        Hands-on tutorials that stand up a complete agent, end-to-end.
+    }
+
+    @Chapter(name: "Your first agent") {
+        Build a small knowledge-base assistant with one custom tool,
+        reachable from the command line.
+
+        @TutorialReference(tutorial: "doc:BuildYourFirstAgent")
+    }
+}

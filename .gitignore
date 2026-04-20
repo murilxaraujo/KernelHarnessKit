@@ -1,0 +1,24 @@
+.DS_Store
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+xcuserdata/
+.netrc
+.env
+.env.*
+!.env.example
+
+# DocC build artefacts
+*.doccarchive
+docs/
+
+# macOS
+.Spotlight-V100
+.Trashes
+
+# VS Code
+.vscode/
+
+# JetBrains
+.idea/

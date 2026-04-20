@@ -1,0 +1,72 @@
+@Tutorial(time: 15) {
+    @Intro(title: "Build your first agent") {
+        Stand up an end-to-end KernelHarnessKit agent: a small knowledge-base
+        assistant with one custom tool, reachable from the command line.
+    }
+
+    @Section(title: "Bootstrap the package") {
+        @ContentAndMedia {
+            Add KernelHarnessKit as a Swift package dependency. The consumer
+            side needs just the main target for a CLI; servers also add
+            `KernelHarnessPostgres`.
+        }
+
+        @Steps {
+            @Step {
+                Add the dependency to your `Package.swift`.
+
+                @Code(name: "Package.swift", file: tutorial-step-1.swift)
+            }
+
+            @Step {
+                Import KernelHarnessKit and sketch the main entry point.
+
+                @Code(name: "main.swift", file: tutorial-step-2.swift)
+            }
+        }
+    }
+
+    @Section(title: "Define a custom tool") {
+        @ContentAndMedia {
+            Tools are the agent's surface area. Write one ``Tool`` conformance
+            per capability: name, description, `Input: Codable`, schema, and
+            an `execute` method returning a ``ToolResult``.
+        }
+
+        @Steps {
+            @Step {
+                Declare the tool.
+
+                @Code(name: "KBSearchTool.swift", file: tutorial-step-3.swift)
+            }
+
+            @Step {
+                Register it into a ``ToolRegistry`` alongside the built-ins.
+
+                @Code(name: "main.swift", file: tutorial-step-4.swift)
+            }
+        }
+    }
+
+    @Section(title: "Run the agent loop") {
+        @ContentAndMedia {
+            Build a ``QueryContext`` with a provider, tools, workspace, and
+            permissions. Call ``runAgent(context:initialMessages:)`` and
+            drain the resulting event stream.
+        }
+
+        @Steps {
+            @Step {
+                Wire everything and stream text chunks to stdout.
+
+                @Code(name: "main.swift", file: tutorial-step-5.swift)
+            }
+
+            @Step {
+                Run it with `OPENAI_API_KEY=sk-… swift run kb-agent "who wrote Inquisitive Machines?"`.
+
+                @Code(name: "main.swift", file: tutorial-step-5.swift)
+            }
+        }
+    }
+}
