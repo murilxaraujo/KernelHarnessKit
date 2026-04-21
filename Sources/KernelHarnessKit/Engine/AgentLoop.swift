@@ -177,9 +177,9 @@ private func executeSingleToolCall(
     registry: ToolRegistry,
     continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
 ) async -> ContentBlock {
-    continuation.yield(.toolExecutionStarted(name: call.name, input: call.input))
+    continuation.yield(.toolExecutionStarted(callId: call.id, name: call.name, input: call.input))
     let result = await runTool(call: call, toolContext: toolContext, registry: registry)
-    continuation.yield(.toolExecutionCompleted(name: call.name, result: result))
+    continuation.yield(.toolExecutionCompleted(callId: call.id, name: call.name, result: result))
     return .toolResult(toolUseId: call.id, content: result.output, isError: result.isError)
 }
 
@@ -190,7 +190,7 @@ private func executeParallelToolCalls(
     continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
 ) async throws -> [ContentBlock] {
     for call in calls {
-        continuation.yield(.toolExecutionStarted(name: call.name, input: call.input))
+        continuation.yield(.toolExecutionStarted(callId: call.id, name: call.name, input: call.input))
     }
 
     var ordered = [ContentBlock?](repeating: nil, count: calls.count)
@@ -202,7 +202,11 @@ private func executeParallelToolCalls(
             }
         }
         for try await (index, toolUseId, result) in group {
-            continuation.yield(.toolExecutionCompleted(name: calls[index].name, result: result))
+            continuation.yield(.toolExecutionCompleted(
+                callId: toolUseId,
+                name: calls[index].name,
+                result: result
+            ))
             ordered[index] = .toolResult(
                 toolUseId: toolUseId,
                 content: result.output,

@@ -122,7 +122,7 @@ struct AgentLoopTests {
         )
         var errored = false
         for try await event in result.events {
-            if case .toolExecutionCompleted(_, let r) = event, r.isError, r.output.contains("unknown tool") {
+            if case .toolExecutionCompleted(_, _, let r) = event, r.isError, r.output.contains("unknown tool") {
                 errored = true
             }
         }
@@ -180,7 +180,7 @@ struct AgentLoopTests {
         )
         var sawDeny = false
         for try await event in result.events {
-            if case .toolExecutionCompleted(_, let r) = event, r.isError, r.output.contains("permission denied") {
+            if case .toolExecutionCompleted(_, _, let r) = event, r.isError, r.output.contains("permission denied") {
                 sawDeny = true
             }
         }

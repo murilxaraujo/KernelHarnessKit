@@ -73,10 +73,15 @@ extension AgentEvent {
                 "message": (try? JSONValue(encoding: message)) ?? .null,
                 "usage": usage.flatMap { try? JSONValue(encoding: $0) } ?? .null,
             ]
-        case .toolExecutionStarted(let name, let input):
-            return ["name": .string(name), "input": .object(input)]
-        case .toolExecutionCompleted(let name, let result):
+        case .toolExecutionStarted(let callId, let name, let input):
             return [
+                "id": .string(callId),
+                "name": .string(name),
+                "input": .object(input),
+            ]
+        case .toolExecutionCompleted(let callId, let name, let result):
+            return [
+                "id": .string(callId),
                 "name": .string(name),
                 "output": .string(result.output),
                 "isError": .bool(result.isError),

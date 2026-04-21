@@ -13,9 +13,16 @@ public enum AgentEvent: Sendable, Hashable {
     /// A full turn is complete: the assistant message and its usage.
     case turnComplete(ConversationMessage, UsageSnapshot?)
     /// A tool call has started. `input` is the validated arguments.
-    case toolExecutionStarted(name: String, input: [String: JSONValue])
-    /// A tool call has finished.
-    case toolExecutionCompleted(name: String, result: ToolResult)
+    ///
+    /// `callId` is the stable tool-use identifier assigned by the model
+    /// (e.g. `call_abc123` from OpenAI, or `toolu_xxx` from Anthropic). It
+    /// matches the `id` field on the corresponding ``ContentBlock/toolUse(id:name:input:)``
+    /// and lets transport-layer consumers (SSE clients, UI state) correlate
+    /// started/completed pairs even when multiple invocations of the same
+    /// tool run in parallel.
+    case toolExecutionStarted(callId: String, name: String, input: [String: JSONValue])
+    /// A tool call has finished. `callId` matches the started event.
+    case toolExecutionCompleted(callId: String, name: String, result: ToolResult)
     /// A generic status message (e.g., "Retrying in 2s: rate limited").
     case status(String)
     /// An error occurred.

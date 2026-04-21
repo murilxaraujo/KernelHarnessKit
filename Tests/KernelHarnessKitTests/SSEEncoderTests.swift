@@ -23,10 +23,26 @@ struct SSEEncoderTests {
     }
 
     @Test func encodesToolCallResult() {
-        let s = encoder.encode(.toolExecutionCompleted(name: "read_file", result: .success("hello")))
+        let s = encoder.encode(.toolExecutionCompleted(
+            callId: "call_abc",
+            name: "read_file",
+            result: .success("hello")
+        ))
         #expect(s.contains("agent_tool_call_result"))
+        #expect(s.contains(#""id":"call_abc""#))
         #expect(s.contains(#""isError":false"#))
         #expect(s.contains(#""output":"hello""#))
+    }
+
+    @Test func encodesToolCallStart() {
+        let s = encoder.encode(.toolExecutionStarted(
+            callId: "call_xyz",
+            name: "write_file",
+            input: ["path": .string("x.md")]
+        ))
+        #expect(s.contains("agent_tool_call_start"))
+        #expect(s.contains(#""id":"call_xyz""#))
+        #expect(s.contains(#""name":"write_file""#))
     }
 
     @Test func encodesHarnessComplete() {
