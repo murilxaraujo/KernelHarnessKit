@@ -112,17 +112,34 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
 
         let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
         if contentType.contains("text/event-stream") {
-            // Pull the first `message` event that parses as a JSON-RPC
-            // envelope and return it.
+            // Walk the SSE events looking for the first JSON-RPC *response*
+            // (envelope with `result` or `error`). FastMCP-based servers
+            // emit `notifications/message` log entries on the same stream
+            // before the response — those have a `method` field but no `id`
+            // and no `result`, and must be skipped or the client misreads
+            // them as a malformed response.
             let events = SSEParser.parse(body)
             for event in events {
-                if let data = event.data.data(using: .utf8) {
+                guard let data = event.data.data(using: .utf8) else { continue }
+                if Self.isJSONRPCResponse(data) {
                     return data
                 }
             }
             throw MCPError.truncatedStream
         }
         return body
+    }
+
+    /// `true` if `data` decodes as a JSON-RPC 2.0 response envelope —
+    /// i.e. an object containing either `result` or `error`. Notifications
+    /// (which carry `method` but no `id`) return false.
+    private static func isJSONRPCResponse(_ data: Data) -> Bool {
+        guard let value = try? JSONDecoder().decode(JSONValue.self, from: data) else {
+            return false
+        }
+        if let result = value["result"], !result.isNull { return true }
+        if let error = value["error"], !error.isNull { return true }
+        return false
     }
 
     /// Flatten MCP content parts into a ``MCPToolResult``.

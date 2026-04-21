@@ -107,6 +107,30 @@ struct MCPHTTPClientTests {
         }
     }
 
+    @Test func skipsLogNotificationsBeforeResponse() async throws {
+        // FastMCP-based servers (mcp-brasil and friends) emit
+        // `notifications/message` log entries on the SSE stream before the
+        // actual response. The client must walk past them.
+        let url = URL(string: "https://example.test/mcp")!
+        MockURLProtocol.reset()
+        MockURLProtocol.registerRawSSE(url: url) { request in
+            let body = request.httpBody ?? Data()
+            let decoded = try? JSONDecoder().decode(JSONValue.self, from: body)
+            let id = decoded?["id"]?.intValue ?? 0
+            let notification = #"{"jsonrpc":"2.0","method":"notifications/message","params":{"data":{"msg":"working"},"level":"info"}}"#
+            let response = #"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[{"name":"noop","description":"noop","inputSchema":{"type":"object","properties":{}}}]}}"#
+            return "event: message\ndata: \(notification)\n\nevent: message\ndata: \(response)\n\n"
+        }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let client = HTTPMCPClient(url: url, session: session)
+
+        let tools = try await client.listTools()
+        #expect(tools.first?.name == "noop")
+    }
+
     @Test func parsesSSEEnvelope() async throws {
         let url = URL(string: "https://example.test/mcp")!
         MockURLProtocol.reset()
@@ -255,13 +279,16 @@ final class StubMCPClient: MCPClient, @unchecked Sendable {
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var handlers: [URL: Handler] = [:]
     nonisolated(unsafe) static var sseHandlers: [URL: SSEHandler] = [:]
+    nonisolated(unsafe) static var rawSSEHandlers: [URL: RawSSEHandler] = [:]
 
     typealias Handler = @Sendable (URLRequest) throws -> (Int, [String: String], Data)
     typealias SSEHandler = @Sendable (URLRequest) throws -> JSONValue
+    typealias RawSSEHandler = @Sendable (URLRequest) throws -> String
 
     static func reset() {
         handlers = [:]
         sseHandlers = [:]
+        rawSSEHandlers = [:]
     }
 
     static func register(url: URL, handler: @escaping Handler) {
@@ -270,6 +297,10 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
     static func registerSSE(url: URL, handler: @escaping SSEHandler) {
         sseHandlers[url] = handler
+    }
+
+    static func registerRawSSE(url: URL, handler: @escaping RawSSEHandler) {
+        rawSSEHandlers[url] = handler
     }
 
     static func jsonRPCResponse(
@@ -289,7 +320,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
     override class func canInit(with request: URLRequest) -> Bool {
         guard let url = request.url else { return false }
-        return handlers[url] != nil || sseHandlers[url] != nil
+        return handlers[url] != nil || sseHandlers[url] != nil || rawSSEHandlers[url] != nil
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -333,6 +364,14 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             let envelope = try handler(hydrated)
             let encoded = try JSONEncoder().encode(envelope)
             let body = "event: message\ndata: \(String(decoding: encoded, as: UTF8.self))\n\n"
+            return (200, ["Content-Type": "text/event-stream"], Data(body.utf8))
+        }
+        if let handler = MockURLProtocol.rawSSEHandlers[url] {
+            var hydrated = request
+            if let stream = request.httpBodyStream, request.httpBody == nil {
+                hydrated.httpBody = Data(reading: stream)
+            }
+            let body = try handler(hydrated)
             return (200, ["Content-Type": "text/event-stream"], Data(body.utf8))
         }
         throw URLError(.cannotFindHost)
