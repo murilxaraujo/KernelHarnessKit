@@ -50,6 +50,70 @@ public struct PhaseBatchItem: Sendable, Hashable {
     }
 }
 
+/// Retry policy for a phase.
+public struct PhaseRetryPolicy: Sendable, Hashable {
+    /// Total attempts, including the first try. Values less than 1 are clamped to 1.
+    public let maxAttempts: Int
+
+    /// Delay before retrying after a failed attempt. `nil` retries immediately.
+    public let backoff: Duration?
+
+    public init(maxAttempts: Int = 1, backoff: Duration? = nil) {
+        self.maxAttempts = max(1, maxAttempts)
+        self.backoff = backoff
+    }
+
+    /// Run once with no retries.
+    public static let none = PhaseRetryPolicy(maxAttempts: 1)
+}
+
+/// Validation to apply to a phase's string output before it is written.
+public struct PhaseOutputValidation: Sendable {
+    /// Human-readable description included in errors and documentation.
+    public let description: String
+
+    private let validator: @Sendable (String, String) throws -> Void
+
+    public init(description: String, validator: @escaping @Sendable (String, String) throws -> Void) {
+        self.description = description
+        self.validator = validator
+    }
+
+    public func validate(_ output: String, phase: String) throws {
+        try validator(output, phase)
+    }
+
+    /// Require non-empty, non-whitespace output.
+    public static let nonEmpty = PhaseOutputValidation(description: "non-empty output") { output, phase in
+        if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw HarnessError.outputValidationFailed(phase: phase, reason: "output is empty")
+        }
+    }
+
+    /// Require the output to be valid JSON matching the supplied schema subset.
+    public static func jsonSchema(_ schema: JSONSchema) -> PhaseOutputValidation {
+        PhaseOutputValidation(description: "JSON Schema output") { output, phase in
+            guard let data = output.data(using: .utf8) else {
+                throw HarnessError.outputValidationFailed(phase: phase, reason: "output is not UTF-8")
+            }
+            let value: JSONValue
+            do {
+                value = try JSONDecoder().decode(JSONValue.self, from: data)
+            } catch {
+                throw HarnessError.outputValidationFailed(phase: phase, reason: "output is not valid JSON: \(error.localizedDescription)")
+            }
+            do {
+                try PhaseOutputSchemaValidator.validate(value, against: schema)
+            } catch let error as HarnessError {
+                if case .outputValidationFailed(_, let reason) = error {
+                    throw HarnessError.outputValidationFailed(phase: phase, reason: reason)
+                }
+                throw error
+            }
+        }
+    }
+}
+
 /// How a phase executes.
 public enum PhaseExecution: Sendable {
     /// Pure Swift — no LLM. The closure returns the string that gets written
@@ -126,6 +190,12 @@ public struct PhaseDefinition: Sendable {
     /// Per-phase timeout. `nil` disables.
     public let timeout: Duration?
 
+    /// Retry policy for transient phase failures.
+    public let retryPolicy: PhaseRetryPolicy
+
+    /// Optional output validation applied before workspace writes and post-execute hooks.
+    public let outputValidation: PhaseOutputValidation?
+
     /// Optional temperature override for LLM phases.
     public let temperature: Double?
 
@@ -148,6 +218,8 @@ public struct PhaseDefinition: Sendable {
         workspaceInputs: [String] = [],
         workspaceOutput: String?,
         timeout: Duration? = .seconds(600),
+        retryPolicy: PhaseRetryPolicy = .none,
+        outputValidation: PhaseOutputValidation? = nil,
         temperature: Double? = nil,
         maxTokens: Int? = nil,
         execution: PhaseExecution,
@@ -160,6 +232,8 @@ public struct PhaseDefinition: Sendable {
         self.workspaceInputs = workspaceInputs
         self.workspaceOutput = workspaceOutput
         self.timeout = timeout
+        self.retryPolicy = retryPolicy
+        self.outputValidation = outputValidation
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.execution = execution

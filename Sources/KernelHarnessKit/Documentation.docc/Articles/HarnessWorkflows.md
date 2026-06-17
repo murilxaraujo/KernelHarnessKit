@@ -11,6 +11,8 @@ runs top-to-bottom. Each phase:
 - Receives a curated set of tools (``PhaseDefinition/tools``).
 - Reads from and writes to the shared ``WorkspaceProvider``.
 - Optionally enforces a ``PhaseDefinition/timeout``.
+- Optionally retries with ``PhaseDefinition/retryPolicy``.
+- Optionally validates output with ``PhaseDefinition/outputValidation`` before workspace writes.
 
 Five execution strategies cover the common shapes of domain work:
 
@@ -62,13 +64,24 @@ let definition = HarnessDefinition(
 )
 ```
 
+### Phase controls
+
+`PhaseDefinition` exposes stabilization controls that apply to all five phase
+kinds:
+
+- `timeout`: cancels the phase and throws ``HarnessError/timeout(phase:duration:)``.
+- `retryPolicy`: retries transient failures with ``PhaseRetryPolicy/maxAttempts`` and optional backoff.
+- `outputValidation`: validates the final string output before it is written to the workspace. Use built-ins such as ``PhaseOutputValidation/nonEmpty`` or ``PhaseOutputValidation/jsonSchema(_:)``, or provide a custom validator.
+
+Workflow events are stable and streamed in order: ``AgentEvent/harnessPhaseStart(name:index:total:)`` before each phase, ``AgentEvent/harnessPhaseComplete(name:summary:)`` on success, ``AgentEvent/harnessPhaseError(name:error:)`` on terminal failure, ``AgentEvent/harnessBatchProgress(current:total:)`` for batch work, ``AgentEvent/harnessHumanInput(question:)`` for user pauses, and ``AgentEvent/harnessComplete`` at the end. Retry attempts emit status events and only the terminal attempt emits completion or error.
+
 ### Running
 
 ```swift
 let engine = HarnessEngine(
     definition: definition,
     context: HarnessContext(
-        provider: provider,
+        harnessModel: provider,
         toolRegistry: registry,
         permissionChecker: DefaultPermissionChecker(mode: .auto),
         workspace: InMemoryWorkspace(),

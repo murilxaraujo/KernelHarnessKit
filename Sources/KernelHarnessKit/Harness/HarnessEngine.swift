@@ -121,7 +121,7 @@ public actor HarnessEngine {
             ))
 
             do {
-                let summary = try await runPhase(phase, index: index, total: total, continuation: continuation)
+                let summary = try await runPhaseWithRetry(phase, index: index, total: total, continuation: continuation)
                 continuation.yield(.harnessPhaseComplete(name: phase.name, summary: summary))
             } catch is CancellationError {
                 status = .cancelled
@@ -142,6 +142,31 @@ public actor HarnessEngine {
         status = .completed
         continuation.yield(.harnessComplete)
         continuation.finish()
+    }
+
+    private func runPhaseWithRetry(
+        _ phase: PhaseDefinition,
+        index: Int,
+        total: Int,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+    ) async throws -> String {
+        let maxAttempts = phase.retryPolicy.maxAttempts
+        var attempt = 1
+        while true {
+            do {
+                return try await runPhase(phase, index: index, total: total, continuation: continuation)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                guard attempt < maxAttempts else { throw error }
+                let nextAttempt = attempt + 1
+                continuation.yield(.status("Phase '\(phase.name)' failed on attempt \(attempt)/\(maxAttempts): \(error.localizedDescription). Retrying attempt \(nextAttempt)."))
+                if let backoff = phase.retryPolicy.backoff {
+                    try await Task.sleep(for: backoff)
+                }
+                attempt = nextAttempt
+            }
+        }
     }
 
     private func runPhase(
@@ -206,9 +231,13 @@ public actor HarnessEngine {
 
         let result: String
         if let timeout = phase.timeout {
-            result = try await withTimeout(timeout, work: work)
+            result = try await withTimeout(timeout, phase: phase.name, work: work)
         } else {
             result = try await work()
+        }
+
+        if let outputValidation = phase.outputValidation {
+            try outputValidation.validate(result, phase: phase.name)
         }
 
         if let output = phase.workspaceOutput {
@@ -329,6 +358,8 @@ public enum HarnessError: Error, Sendable, Equatable, LocalizedError {
     case missingAskUserHandler
     /// A phase exceeded its timeout.
     case timeout(phase: String, duration: Duration)
+    /// A phase produced output that failed validation.
+    case outputValidationFailed(phase: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -336,6 +367,8 @@ public enum HarnessError: Error, Sendable, Equatable, LocalizedError {
             return "Harness phase requested human input but no AskUserHandler is configured."
         case .timeout(let phase, let duration):
             return "Harness phase '\(phase)' exceeded timeout \(duration)."
+        case .outputValidationFailed(let phase, let reason):
+            return "Harness phase '\(phase)' output validation failed: \(reason)."
         }
     }
 }

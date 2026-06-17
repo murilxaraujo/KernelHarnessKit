@@ -222,6 +222,94 @@ struct HarnessEngineTests {
         #expect(threw)
     }
 
+    @Test func retryPolicyRetriesFailedPhase() async throws {
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func increment() -> Int {
+                lock.lock(); defer { lock.unlock() }
+                value += 1
+                return value
+            }
+        }
+        struct RetryBoom: Error {}
+        let counter = Counter()
+        let workspace = InMemoryWorkspace()
+        let phase = PhaseDefinition(
+            name: "flaky", description: "", systemPrompt: "",
+            workspaceOutput: "result.txt",
+            retryPolicy: PhaseRetryPolicy(maxAttempts: 3, backoff: .milliseconds(1)),
+            execution: .programmatic { _ in
+                if counter.increment() < 3 { throw RetryBoom() }
+                return "ok"
+            }
+        )
+        let engine = HarnessEngine(
+            definition: HarnessDefinition(type: "retry", displayName: "", description: "", phases: [phase]),
+            context: makeContext(harnessModel: MockLLMProvider(script: []), workspace: workspace)
+        )
+
+        var retryStatuses = 0
+        for try await event in engine.run() {
+            if case .status(let message) = event, message.contains("Retrying attempt") {
+                retryStatuses += 1
+            }
+        }
+        #expect(retryStatuses == 2)
+        #expect(try await workspace.readFile(path: "result.txt") == "ok")
+    }
+
+    @Test func outputValidationRejectsInvalidOutput() async throws {
+        let phase = PhaseDefinition(
+            name: "empty", description: "", systemPrompt: "",
+            workspaceOutput: "result.txt",
+            outputValidation: .nonEmpty,
+            execution: .programmatic { _ in "   " }
+        )
+        let engine = HarnessEngine(
+            definition: HarnessDefinition(type: "validation", displayName: "", description: "", phases: [phase]),
+            context: makeContext(harnessModel: MockLLMProvider(script: []))
+        )
+
+        var sawPhaseError = false
+        do {
+            for try await event in engine.run() {
+                if case .harnessPhaseError(let name, let error) = event {
+                    sawPhaseError = name == "empty" && error.contains("output validation failed")
+                }
+            }
+            Issue.record("Expected validation to throw")
+        } catch let error as HarnessError {
+            if case .outputValidationFailed(let phase, _) = error {
+                #expect(phase == "empty")
+            } else {
+                Issue.record("Unexpected harness error: \(error)")
+            }
+        }
+        #expect(sawPhaseError)
+    }
+
+    @Test func jsonSchemaOutputValidationAcceptsValidOutput() async throws {
+        let workspace = InMemoryWorkspace()
+        let phase = PhaseDefinition(
+            name: "json", description: "", systemPrompt: "",
+            workspaceOutput: "result.json",
+            outputValidation: .jsonSchema(.object(
+                properties: ["summary": .string()],
+                required: ["summary"],
+                additionalProperties: false
+            )),
+            execution: .programmatic { _ in #"{"summary":"ok"}"# }
+        )
+        let engine = HarnessEngine(
+            definition: HarnessDefinition(type: "json", displayName: "", description: "", phases: [phase]),
+            context: makeContext(harnessModel: MockLLMProvider(script: []), workspace: workspace)
+        )
+
+        for try await _ in engine.run() {}
+        #expect(try await workspace.readFile(path: "result.json") == #"{"summary":"ok"}"#)
+    }
+
     @Test func timeoutFires() async throws {
         let phase = PhaseDefinition(
             name: "slow", description: "", systemPrompt: "",
