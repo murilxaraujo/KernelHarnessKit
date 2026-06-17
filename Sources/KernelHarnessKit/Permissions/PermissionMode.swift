@@ -13,6 +13,9 @@ public enum PermissionMode: Sendable, Hashable {
     /// Block every write invocation. Read-only tools still run.
     case readOnly
 
+    /// Require approval for every invocation, including read-only tools.
+    case approvalRequired
+
     /// Use a custom policy.
     case custom(PermissionPolicy)
 }

@@ -12,6 +12,7 @@ public enum AgentEventKind: String, Codable, Sendable, Hashable, CaseIterable {
     case toolExecutionCompleted = "agent_tool_call_result"
     case status = "agent_status"
     case error = "agent_error"
+    case permissionDenied = "agent_permission_denied"
     case statusChange = "agent_status_change"
     case todosUpdated = "agent_todos_updated"
     case subAgentStarted = "agent_sub_agent_start"
@@ -110,6 +111,8 @@ public enum AgentEvent: Codable, Sendable, Hashable {
     case status(String)
     /// An error occurred.
     case error(String)
+    /// A tool invocation was denied by the session permission policy.
+    case permissionDenied(callId: String, toolName: String, reason: String, input: [String: JSONValue])
 
     // MARK: Coordination events
     /// The agent's state machine changed.
@@ -150,6 +153,7 @@ extension AgentEvent {
         case .toolExecutionCompleted: return .toolExecutionCompleted
         case .status:                 return .status
         case .error:                  return .error
+        case .permissionDenied:       return .permissionDenied
         case .statusChange:           return .statusChange
         case .todosUpdated:           return .todosUpdated
         case .subAgentStarted:        return .subAgentStarted
@@ -201,6 +205,13 @@ extension AgentEvent {
             return ["message": .string(text)]
         case .error(let message):
             return ["message": .string(message)]
+        case .permissionDenied(let callId, let toolName, let reason, let input):
+            return [
+                "id": .string(callId),
+                "name": .string(toolName),
+                "reason": .string(reason),
+                "input": .object(input),
+            ]
         case .statusChange(let status):
             return ["status": .string(status.rawValue)]
         case .todosUpdated(let items):
@@ -332,6 +343,14 @@ extension AgentEvent {
             self = .status(try string("message"))
         case .error:
             self = .error(try string("message"))
+        case .permissionDenied:
+            let input = object["input"]?.objectValue ?? [:]
+            self = .permissionDenied(
+                callId: try string("id"),
+                toolName: try string("name"),
+                reason: try string("reason"),
+                input: input
+            )
         case .statusChange:
             guard let status = AgentStatus(rawValue: try string("status")) else {
                 throw DecodingError.dataCorruptedError(

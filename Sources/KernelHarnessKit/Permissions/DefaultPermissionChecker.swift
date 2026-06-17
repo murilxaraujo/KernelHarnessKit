@@ -23,6 +23,8 @@ public struct DefaultPermissionChecker: PermissionChecker, Sendable {
             return isReadOnly
                 ? .allow
                 : .deny("permission mode is readOnly — \(toolName) performs writes")
+        case .approvalRequired:
+            return .confirm("permission mode requires approval for \(toolName)")
         case .default:
             return isReadOnly
                 ? .allow

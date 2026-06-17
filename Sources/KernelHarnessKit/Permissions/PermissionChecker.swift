@@ -1,5 +1,15 @@
 import Foundation
 
+/// Coarse outcome category for a permission evaluation.
+public enum PermissionCategory: String, Codable, Sendable, Hashable, CaseIterable {
+    /// Invocation may proceed without user approval.
+    case allowed
+    /// Invocation is blocked and must not run.
+    case denied
+    /// Invocation may proceed only after explicit user approval.
+    case approvalRequired = "approval_required"
+}
+
 /// A single permission evaluation result.
 public struct PermissionDecision: Sendable, Hashable {
     /// `true` if the tool invocation may proceed.
@@ -11,6 +21,12 @@ public struct PermissionDecision: Sendable, Hashable {
 
     /// Human-readable reason. Surfaced to the user and optionally to the model.
     public let reason: String?
+
+    /// Coarse category derived from ``allowed`` and ``requiresConfirmation``.
+    public var category: PermissionCategory {
+        if !allowed { return .denied }
+        return requiresConfirmation ? .approvalRequired : .allowed
+    }
 
     public init(allowed: Bool, requiresConfirmation: Bool = false, reason: String? = nil) {
         self.allowed = allowed

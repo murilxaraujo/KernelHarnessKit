@@ -182,7 +182,14 @@ struct AgentLoopTests {
             initialMessages: [ConversationMessage(role: .user, text: "write file")]
         )
         var sawDeny = false
+        var sawPermissionEvent = false
         for try await event in result.events {
+            if case .permissionDenied(let callId, let toolName, let reason, let input) = event {
+                sawPermissionEvent = callId == "t1"
+                    && toolName == "write_file"
+                    && reason.contains("permission denied")
+                    && input["path"] == "x.md"
+            }
             if case .toolExecutionCompleted(_, _, let r) = event,
                r.isError,
                r.output.contains("permission denied"),
@@ -191,6 +198,7 @@ struct AgentLoopTests {
             }
         }
         #expect(sawDeny)
+        #expect(sawPermissionEvent)
     }
 
     @Test func providerReceivesStrippedModelId() async throws {

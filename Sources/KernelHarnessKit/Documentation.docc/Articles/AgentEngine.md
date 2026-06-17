@@ -41,9 +41,16 @@ the conversation.
 ### Permission gating
 
 Every tool invocation is checked by the session's ``PermissionChecker``
-before ``Tool/execute(_:context:)`` is called. A denied decision becomes a
-``ToolResult`` with ``ToolResult/isError`` set — surfaced to the model as
-a regular error result so it can adapt, not as an engine-level exception.
+before ``Tool/execute(_:context:)`` is called. Decisions are categorized as
+``PermissionCategory/allowed``, ``PermissionCategory/approvalRequired``, or
+``PermissionCategory/denied``. ``DefaultPermissionChecker`` supports `auto`,
+`readOnly`, `approvalRequired`, and `custom` modes; `custom` mode can apply
+per-tool overrides, command deny-list entries, and filesystem glob rules.
+
+A denied decision emits ``AgentEvent/permissionDenied(callId:toolName:reason:input:)``
+and becomes a ``ToolResult`` with ``ToolResult/isError`` set — surfaced to the
+model as a regular error result so it can adapt, not as an engine-level
+exception.
 
 ### Context growth
 

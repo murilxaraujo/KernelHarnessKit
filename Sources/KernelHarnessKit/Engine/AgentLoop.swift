@@ -184,6 +184,14 @@ private func executeSingleToolCall(
 ) async -> ContentBlock {
     continuation.yield(.toolExecutionStarted(callId: call.id, name: call.name, input: call.input))
     let result = await runTool(call: call, toolContext: toolContext, registry: registry)
+    if result.error?.kind == .permissionDenied {
+        continuation.yield(.permissionDenied(
+            callId: call.id,
+            toolName: call.name,
+            reason: result.error?.message ?? result.output,
+            input: call.input
+        ))
+    }
     continuation.yield(.toolExecutionCompleted(callId: call.id, name: call.name, result: result))
     return .toolResult(toolUseId: call.id, content: result.output, isError: result.isError)
 }
@@ -207,6 +215,14 @@ private func executeParallelToolCalls(
             }
         }
         for try await (index, toolUseId, result) in group {
+            if result.error?.kind == .permissionDenied {
+                continuation.yield(.permissionDenied(
+                    callId: toolUseId,
+                    toolName: calls[index].name,
+                    reason: result.error?.message ?? result.output,
+                    input: calls[index].input
+                ))
+            }
             continuation.yield(.toolExecutionCompleted(
                 callId: toolUseId,
                 name: calls[index].name,

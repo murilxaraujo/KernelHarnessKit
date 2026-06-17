@@ -9,14 +9,27 @@ struct PermissionCheckerTests {
         let d = checker.evaluate(toolName: "write_file", isReadOnly: false, filePath: "x", command: nil)
         #expect(d.allowed)
         #expect(d.requiresConfirmation == false)
+        #expect(d.category == .allowed)
     }
 
     @Test func readOnlyBlocksWrites() {
         let checker = DefaultPermissionChecker(mode: .readOnly)
         #expect(checker.evaluate(toolName: "read_file", isReadOnly: true, filePath: nil, command: nil).allowed)
-        #expect(
-            checker.evaluate(toolName: "write_file", isReadOnly: false, filePath: nil, command: nil).allowed == false
-        )
+        let blocked = checker.evaluate(toolName: "write_file", isReadOnly: false, filePath: nil, command: nil)
+        #expect(blocked.allowed == false)
+        #expect(blocked.category == .denied)
+    }
+
+    @Test func approvalRequiredAsksForAllInvocations() {
+        let checker = DefaultPermissionChecker(mode: .approvalRequired)
+        let read = checker.evaluate(toolName: "read_file", isReadOnly: true, filePath: nil, command: nil)
+        let write = checker.evaluate(toolName: "write_file", isReadOnly: false, filePath: nil, command: nil)
+        #expect(read.allowed)
+        #expect(read.requiresConfirmation)
+        #expect(read.category == .approvalRequired)
+        #expect(write.allowed)
+        #expect(write.requiresConfirmation)
+        #expect(write.category == .approvalRequired)
     }
 
     @Test func defaultAsksForWrites() {
@@ -28,6 +41,7 @@ struct PermissionCheckerTests {
         let writes = checker.evaluate(toolName: "write_file", isReadOnly: false, filePath: nil, command: nil)
         #expect(writes.allowed)
         #expect(writes.requiresConfirmation == true)
+        #expect(writes.category == .approvalRequired)
     }
 
     @Test func customPolicyToolOverride() {
