@@ -186,13 +186,17 @@ extension AgentEvent {
                 "input": .object(input),
             ]
         case .toolExecutionCompleted(let callId, let name, let result):
-            return [
+            var payload: [String: JSONValue] = [
                 "id": .string(callId),
                 "name": .string(name),
                 "output": .string(result.output),
                 "isError": .bool(result.isError),
                 "metadata": .object(result.metadata),
             ]
+            if let error = result.error, let encoded = try? JSONValue(encoding: error) {
+                payload["error"] = encoded
+            }
+            return .object(payload)
         case .status(let text):
             return ["message": .string(text)]
         case .error(let message):
@@ -321,7 +325,8 @@ extension AgentEvent {
         case .toolExecutionCompleted:
             let metadata = object["metadata"]?.objectValue ?? [:]
             let isError = (object["isError"]?.boolValue) ?? false
-            let result = ToolResult(output: try string("output"), isError: isError, metadata: metadata)
+            let error = try object["error"]?.decode(as: ToolError.self)
+            let result = ToolResult(output: try string("output"), isError: isError, error: error, metadata: metadata)
             self = .toolExecutionCompleted(callId: try string("id"), name: try string("name"), result: result)
         case .status:
             self = .status(try string("message"))

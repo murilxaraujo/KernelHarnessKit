@@ -31,11 +31,13 @@ public struct WriteTodosTool: Tool {
         required: ["todos"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.mutatesWorkspace]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
         guard let manager = context.todoManager else {
-            return .failure("no todo manager configured for this session")
+            return .failure("no todo manager configured for this session", kind: .unavailable)
         }
         try await manager.replace(input.todos)
         return .success("replaced todos (\(input.todos.count) items)")
@@ -51,11 +53,13 @@ public struct ReadTodosTool: Tool {
 
     public static let inputSchema = JSONSchema.object(properties: [:])
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.readOnly]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
         guard let manager = context.todoManager else {
-            return .failure("no todo manager configured for this session")
+            return .failure("no todo manager configured for this session", kind: .unavailable)
         }
         let items = await manager.current()
         if items.isEmpty {

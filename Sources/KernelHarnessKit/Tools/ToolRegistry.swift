@@ -38,6 +38,11 @@ public final class ToolRegistry: @unchecked Sendable {
         withLock { Array(tools.values) }
     }
 
+    /// Metadata for all registered tools, in unspecified order.
+    public func allMetadata() -> [ToolMetadata] {
+        withLock { tools.values.map(\.metadata) }
+    }
+
     /// The schema array to send to the LLM provider as the `tools` field.
     public func apiSchema() -> [[String: Any]] {
         withLock { tools.values.map(\.apiSchema) }

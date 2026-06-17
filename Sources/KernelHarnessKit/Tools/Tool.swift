@@ -1,5 +1,44 @@
 import Foundation
 
+/// Coarse permission hints advertised as part of tool metadata.
+public enum ToolPermissionRequirement: String, Codable, Sendable, Hashable, CaseIterable {
+    /// The tool only reads local/session state.
+    case readOnly = "read_only"
+    /// The tool mutates workspace files or session state.
+    case mutatesWorkspace = "mutates_workspace"
+    /// The tool runs shell commands or subprocesses.
+    case executesCommands = "executes_commands"
+    /// The tool communicates with external systems.
+    case usesNetwork = "uses_network"
+    /// The tool may pause for explicit user confirmation/input.
+    case requiresUserInput = "requires_user_input"
+    /// The tool has no stronger static declaration.
+    case unknown
+}
+
+/// Stable metadata describing a tool's interface and safety profile.
+public struct ToolMetadata: Codable, Sendable, Hashable {
+    public let name: String
+    public let description: String
+    public let permissions: [ToolPermissionRequirement]
+    public let inputSchema: JSONSchema
+    public let outputSchema: JSONSchema
+
+    public init(
+        name: String,
+        description: String,
+        permissions: [ToolPermissionRequirement],
+        inputSchema: JSONSchema,
+        outputSchema: JSONSchema
+    ) {
+        self.name = name
+        self.description = description
+        self.permissions = permissions
+        self.inputSchema = inputSchema
+        self.outputSchema = outputSchema
+    }
+}
+
 /// A capability the agent can invoke.
 ///
 /// Every tool has a stable ``name``, a natural-language ``description`` shown
@@ -45,6 +84,12 @@ public protocol Tool: Sendable {
     /// JSON Schema for the `Input` type.
     static var inputSchema: JSONSchema { get }
 
+    /// JSON Schema for the tool's normalized output.
+    static var outputSchema: JSONSchema { get }
+
+    /// Static permission hints for this tool.
+    static var permissionRequirements: [ToolPermissionRequirement] { get }
+
     /// Execute the tool with validated input.
     func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult
 
@@ -56,5 +101,21 @@ public protocol Tool: Sendable {
 }
 
 extension Tool {
+    public static var outputSchema: JSONSchema {
+        .string(description: "Human-readable tool output")
+    }
+
+    public static var permissionRequirements: [ToolPermissionRequirement] { [.unknown] }
+
+    public var metadata: ToolMetadata {
+        ToolMetadata(
+            name: name,
+            description: description,
+            permissions: Self.permissionRequirements,
+            inputSchema: Self.inputSchema,
+            outputSchema: Self.outputSchema
+        )
+    }
+
     public func isReadOnly(_ input: Input) -> Bool { false }
 }

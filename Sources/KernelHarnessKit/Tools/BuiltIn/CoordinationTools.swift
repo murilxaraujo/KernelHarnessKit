@@ -24,18 +24,20 @@ public struct TaskTool: Tool {
         required: ["description", "prompt"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.usesNetwork]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
         guard let factory = context.subAgentFactory else {
-            return .failure("no sub-agent factory configured for this session")
+            return .failure("no sub-agent factory configured for this session", kind: .unavailable)
         }
         let executor = factory()
         do {
             let output = try await executor.run(initialMessage: input.prompt)
             return .success(output)
         } catch {
-            return .failure("sub-agent failed: \(error.localizedDescription)")
+            return .failure("sub-agent failed: \(error.localizedDescription)", kind: .executionFailed)
         }
     }
 }
@@ -61,17 +63,19 @@ public struct AskUserTool: Tool {
         required: ["question"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.requiresUserInput]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
         guard let handler = context.askUserHandler else {
-            return .failure("no ask-user handler configured for this session")
+            return .failure("no ask-user handler configured for this session", kind: .unavailable)
         }
         do {
             let answer = try await handler.askUser(question: input.question)
             return .success(answer)
         } catch {
-            return .failure("ask-user failed: \(error.localizedDescription)")
+            return .failure("ask-user failed: \(error.localizedDescription)", kind: .executionFailed)
         }
     }
 }

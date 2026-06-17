@@ -21,6 +21,8 @@ public struct WriteFileTool: Tool {
         required: ["path", "content"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.mutatesWorkspace]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
@@ -49,6 +51,8 @@ public struct ReadFileTool: Tool {
         required: ["path"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.readOnly]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
@@ -56,7 +60,7 @@ public struct ReadFileTool: Tool {
             let content = try await context.workspace.readFile(path: input.path)
             return .success(content)
         } catch WorkspaceError.fileNotFound(let p) {
-            return .failure("file not found: \(p)")
+            return .failure("file not found: \(p)", kind: .notFound, details: ["path": .string(p)])
         }
     }
 
@@ -92,6 +96,8 @@ public struct EditFileTool: Tool {
         required: ["path", "old_string", "new_string"]
     )
 
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.mutatesWorkspace]
+
     public init() {}
 
     public func execute(_ input: Input, context: ToolExecutionContext) async throws -> ToolResult {
@@ -103,11 +109,11 @@ public struct EditFileTool: Tool {
             )
             return .success("edited \(input.path)")
         } catch WorkspaceError.fileNotFound(let p) {
-            return .failure("file not found: \(p)")
+            return .failure("file not found: \(p)", kind: .notFound, details: ["path": .string(p)])
         } catch WorkspaceError.stringNotFound {
-            return .failure("old_string not found in \(input.path)")
+            return .failure("old_string not found in \(input.path)", kind: .invalidInput, details: ["path": .string(input.path)])
         } catch WorkspaceError.stringNotUnique {
-            return .failure("old_string appears more than once in \(input.path); make it more specific")
+            return .failure("old_string appears more than once in \(input.path); make it more specific", kind: .invalidInput, details: ["path": .string(input.path)])
         }
     }
 }
@@ -120,6 +126,8 @@ public struct ListFilesTool: Tool {
     public struct Input: Codable, Sendable {}
 
     public static let inputSchema = JSONSchema.object(properties: [:])
+
+    public static let permissionRequirements: [ToolPermissionRequirement] = [.readOnly]
 
     public init() {}
 

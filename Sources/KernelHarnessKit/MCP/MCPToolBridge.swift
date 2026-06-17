@@ -34,19 +34,24 @@ public struct MCPToolBridge: Sendable {
             let registeredName = namePrefix.map { "\($0)\(tool.name)" } ?? tool.name
             let info = tool
             let readOnly = info.annotations?.readOnlyHint ?? false
+            let permissionRequirements: [ToolPermissionRequirement] = readOnly ? [.readOnly, .usesNetwork] : [.usesNetwork]
             let any = AnyTool(
                 name: registeredName,
                 description: info.description,
                 inputSchema: info.inputSchema,
+                permissionRequirements: permissionRequirements,
                 execute: { arguments, _ in
                     do {
                         let result = try await client.callTool(
                             name: info.name,
                             arguments: arguments
                         )
-                        return ToolResult(output: result.content, isError: result.isError)
+                        if result.isError {
+                            return .failure(result.content, kind: .executionFailed)
+                        }
+                        return ToolResult(output: result.content, isError: false)
                     } catch {
-                        return .failure("MCP tool error: \(error.localizedDescription)")
+                        return .failure("MCP tool error: \(error.localizedDescription)", kind: .executionFailed)
                     }
                 },
                 isReadOnly: { _ in readOnly }

@@ -228,7 +228,11 @@ private func runTool(
     registry: ToolRegistry
 ) async -> ToolResult {
     guard let tool = registry.get(call.name) else {
-        return .failure("unknown tool '\(call.name)'")
+        return .failure(
+            "unknown tool '\(call.name)'",
+            kind: .unknownTool,
+            details: ["tool": .string(call.name)]
+        )
     }
     let filePath = call.input["path"]?.stringValue
     let command = call.input["command"]?.stringValue
@@ -240,7 +244,12 @@ private func runTool(
         command: command
     )
     if !decision.allowed {
-        return .failure("permission denied: \(decision.reason ?? "")")
+        let reason = decision.reason ?? "invocation blocked by permission policy"
+        return .failure(
+            "permission denied: \(reason)",
+            kind: .permissionDenied,
+            details: ["tool": .string(call.name)]
+        )
     }
     return await tool.execute(rawInput: call.input, context: toolContext)
 }

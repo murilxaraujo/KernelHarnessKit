@@ -46,6 +46,18 @@ struct ToolRegistryTests {
         #expect(fn?["parameters"] as? [String: Any] != nil)
     }
 
+    @Test func metadataIncludesPermissionsAndSchemas() {
+        let registry = ToolRegistry()
+        registry.register(ReadFileTool())
+        registry.register(WriteFileTool())
+
+        let metadata = Dictionary(uniqueKeysWithValues: registry.allMetadata().map { ($0.name, $0) })
+        #expect(metadata["read_file"]?.permissions == [.readOnly])
+        #expect(metadata["write_file"]?.permissions == [.mutatesWorkspace])
+        #expect(metadata["read_file"]?.inputSchema.type == .object)
+        #expect(metadata["read_file"]?.outputSchema.type == .string)
+    }
+
     @Test func unknownToolReturnsNil() {
         let registry = ToolRegistry()
         #expect(registry.get("nope") == nil)
@@ -119,6 +131,7 @@ struct WorkspaceToolsTests {
         let writer = AnyTool(WriteFileTool())
         let result = await writer.execute(rawInput: [:], context: context)
         #expect(result.isError == true)
+        #expect(result.error?.kind == .invalidInput)
     }
 }
 

@@ -51,6 +51,11 @@ struct AgentEventContractTests {
                 name: "read_file",
                 result: .success("ok", metadata: ["bytes": 2])
             ),
+            .toolExecutionCompleted(
+                callId: "call_2",
+                name: "read_file",
+                result: .failure("missing", kind: .notFound, details: ["path": "missing.md"])
+            ),
             .status("working"),
             .error("failed"),
             .statusChange(.working),
