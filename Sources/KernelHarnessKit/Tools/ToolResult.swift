@@ -7,7 +7,7 @@ import Foundation
 /// that received bad input, hit a timeout, or encountered an expected failure
 /// should return `ToolResult(output: reason, isError: true)` so the agent loop
 /// can surface the result to the model and let it adapt.
-public struct ToolResult: Sendable, Hashable {
+public struct ToolResult: Codable, Sendable, Hashable {
     /// The human-readable output, formatted for inclusion in the model's
     /// context window. Prefer plain text or compact JSON.
     public let output: String

@@ -31,9 +31,20 @@ for try await event in result.events {
 }
 ```
 
-The `event:` tag is stable across releases — consumers can write clients
-that pattern-match on type strings (`agent_text_chunk`,
-`harness_phase_start`, etc.) without importing KernelHarnessKit.
+The `event:` tag comes from ``AgentEvent/eventType`` and is stable across
+releases — consumers can write clients that pattern-match on type strings
+(`agent_text_chunk`, `harness_phase_start`, etc.) without importing
+KernelHarnessKit.
+
+### Codable event contract
+
+``AgentEvent`` is `Codable`. It encodes as a stable object with `type` and
+`payload` fields, where `type` matches ``AgentEventKind`` and `payload` is a
+structured ``JSONValue`` projection.
+
+Use ``AgentEvent/engineEnvelope(sessionID:sequence:id:protocolVersion:timestamp:parentEventID:metadata:)``
+to adapt harness events into replayable engine stream records with event IDs,
+sequence numbers, session IDs, optional parent IDs, and ``AgentEventMetadata``.
 
 ### Human-in-the-loop
 

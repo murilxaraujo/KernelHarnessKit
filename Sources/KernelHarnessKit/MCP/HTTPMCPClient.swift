@@ -10,7 +10,7 @@ import FoundationNetworking
 /// envelopes — both are valid per the MCP specification. Suitable for
 /// most HTTP-reachable MCP servers, including Anthropic's reference
 /// implementations and the in-process MCP services used by Nemesis.
-public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
+public final class HTTPMCPClient: MCPClient, Sendable {
     /// The server URL.
     public let url: URL
 
@@ -20,9 +20,7 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
     /// URLSession to use. Injectable for testing.
     public let session: URLSession
 
-    private let counter = RequestIDCounter()
-    private let isConnected = Lock<Bool>(false)
-    private let capabilities = Lock<JSONValue>(.null)
+    private let state = HTTPMCPClientState()
 
     public init(
         url: URL,
@@ -44,8 +42,7 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
             ],
         ]
         let response = try await call(method: "initialize", params: params)
-        capabilities.set(response)
-        isConnected.set(true)
+        await state.didConnect(capabilities: response)
         // Emit the `initialized` notification per MCP spec.
         let payload = try JSONRPC.notification(method: "notifications/initialized")
         _ = try? await post(payload: payload)
@@ -71,7 +68,7 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
     }
 
     public func disconnect() async throws {
-        isConnected.set(false)
+        await state.didDisconnect()
     }
 
     // MARK: - Transport
@@ -81,7 +78,7 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
         method: String,
         params: [String: JSONValue]? = nil
     ) async throws -> JSONValue {
-        let id = counter.next()
+        let id = await state.nextRequestID()
         let payload = try JSONRPC.request(id: id, method: method, params: params)
         let data = try await post(payload: payload)
         return try JSONRPC.parseResponse(data)
@@ -154,21 +151,23 @@ public final class HTTPMCPClient: MCPClient, @unchecked Sendable {
     }
 }
 
-/// Small lock primitive used to wrap mutable fields in `@unchecked Sendable`
-/// classes without pulling in OSAllocatedUnfairLock/swift-atomics.
-final class Lock<T>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: T
+/// Mutable HTTP MCP client state isolated behind Swift Concurrency instead of locks.
+private actor HTTPMCPClientState {
+    private let counter = RequestIDCounter()
+    private var isConnected = false
+    private var capabilities: JSONValue = .null
 
-    init(_ value: T) { self.value = value }
-
-    func get() -> T {
-        lock.lock(); defer { lock.unlock() }
-        return value
+    func nextRequestID() async -> Int {
+        await counter.next()
     }
 
-    func set(_ newValue: T) {
-        lock.lock(); defer { lock.unlock() }
-        value = newValue
+    func didConnect(capabilities: JSONValue) {
+        self.capabilities = capabilities
+        isConnected = true
+    }
+
+    func didDisconnect() {
+        isConnected = false
+        capabilities = .null
     }
 }

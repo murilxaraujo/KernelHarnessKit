@@ -44,13 +44,11 @@ enum JSONRPC {
     }
 }
 
-/// Atomic counter for JSON-RPC `id` fields.
-final class RequestIDCounter: @unchecked Sendable {
-    private let lock = NSLock()
+/// Actor-isolated counter for JSON-RPC `id` fields.
+actor RequestIDCounter {
     private var value: Int = 0
 
     func next() -> Int {
-        lock.lock(); defer { lock.unlock() }
         value += 1
         return value
     }
