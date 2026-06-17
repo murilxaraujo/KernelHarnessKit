@@ -12,6 +12,8 @@ let package = Package(
     products: [
         .library(name: "KernelHarnessKit", targets: ["KernelHarnessKit"]),
         .library(name: "KernelHarnessPostgres", targets: ["KernelHarnessPostgres"]),
+        .library(name: "KernelHarnessMCPServer", targets: ["KernelHarnessMCPServer"]),
+        .library(name: "KernelHarnessClaudeCode", targets: ["KernelHarnessClaudeCode"]),
         .executable(name: "kernel-harness-demo", targets: ["KernelHarnessDemo"]),
     ],
     dependencies: [
@@ -47,10 +49,36 @@ let package = Package(
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
+        .target(
+            name: "KernelHarnessMCPServer",
+            dependencies: [
+                "KernelHarnessKit",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "KernelHarnessClaudeCode",
+            dependencies: [
+                "KernelHarnessKit",
+                "KernelHarnessMCPServer",
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+            ]
+        ),
         .executableTarget(
             name: "KernelHarnessDemo",
             dependencies: [
                 "KernelHarnessKit",
+                "KernelHarnessMCPServer",
+                "KernelHarnessClaudeCode",
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
@@ -63,6 +91,22 @@ let package = Package(
         .testTarget(
             name: "KernelHarnessPostgresTests",
             dependencies: ["KernelHarnessPostgres"]
+        ),
+        .testTarget(
+            name: "KernelHarnessMCPServerTests",
+            dependencies: [
+                "KernelHarnessMCPServer",
+                "KernelHarnessKit",
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+            ]
+        ),
+        .testTarget(
+            name: "KernelHarnessClaudeCodeTests",
+            dependencies: [
+                "KernelHarnessClaudeCode",
+                "KernelHarnessKit",
+                "KernelHarnessMCPServer",
+            ]
         ),
     ]
 )

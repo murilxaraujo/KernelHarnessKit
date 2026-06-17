@@ -1,5 +1,8 @@
 import Foundation
 import KernelHarnessKit
+import KernelHarnessMCPServer
+import KernelHarnessClaudeCode
+import Logging
 
 @main
 struct KernelHarnessDemo {
@@ -14,6 +17,8 @@ struct KernelHarnessDemo {
                 try await runChat(prompt: prompt.isEmpty ? defaultChatPrompt : prompt)
             case "harness":
                 try await runHarness()
+            case "cc":
+                try await runClaudeCode(prompt: prompt.isEmpty ? defaultChatPrompt : prompt)
             case "--help", "-h", "help":
                 print(helpText)
             default:
@@ -34,15 +39,18 @@ struct KernelHarnessDemo {
     Usage:
         kernel-harness-demo chat [prompt...]
         kernel-harness-demo harness
+        kernel-harness-demo cc [prompt...]
 
     Environment:
-        OPENAI_API_KEY     Required for live provider calls.
+        OPENAI_API_KEY     Required for chat/harness (OpenAI-compatible endpoint).
         OPENAI_BASE_URL    Override the OpenAI-compatible endpoint (optional).
         KHK_DEMO_MODEL     Model id (default: openai/gpt-4o-mini).
+        KHK_DEMO_CC_MODEL  Model id for cc mode (default: haiku).
 
     Modes:
-        chat     Single-turn chat. Streams assistant text to stdout.
+        chat     Single-turn chat via OpenAI-compatible provider.
         harness  Run a 3-phase demo harness: programmatic → llmSingle → llmBatchAgents.
+        cc       Single-turn chat via the local Claude Code CLI (uses your Max subscription or ANTHROPIC_API_KEY).
     """
 
     private static func model() -> String {
@@ -210,5 +218,73 @@ enum DemoError: Error, LocalizedError {
         case .missingAPIKey:
             return "OPENAI_API_KEY is not set. Export it before running this demo."
         }
+    }
+}
+
+// MARK: - Claude Code mode
+
+extension KernelHarnessDemo {
+    /// Drive a single-turn chat through the Claude Code CLI. Uses your Max
+    /// subscription OAuth by default (no API key needed); falls back to
+    /// `ANTHROPIC_API_KEY` when present.
+    static func runClaudeCode(prompt: String) async throws {
+        let registry = ToolRegistry()
+        registry.registerBuiltIns()
+
+        // Start an ephemeral MCP server exposing the registry.
+        let mcpServer = MCPServer(
+            toolRegistry: registry,
+            contextFactory: {
+                ToolExecutionContext(
+                    workspace: InMemoryWorkspace(),
+                    permissionChecker: DefaultPermissionChecker(mode: .auto)
+                )
+            },
+            logger: Logger(label: "demo.mcp")
+        )
+        let handle = try await mcpServer.start()
+        print("[cc] mcp server: \(handle.url)")
+
+        let model = ProcessInfo.processInfo.environment["KHK_DEMO_CC_MODEL"] ?? "haiku"
+        let provider = ClaudeCodeProvider.local(
+            mcpServer: handle,
+            logger: Logger(label: "demo.cc")
+        )
+
+        let context = QueryContext(
+            provider: provider,
+            toolRegistry: ToolRegistry(),
+            permissionChecker: DefaultPermissionChecker(mode: .auto),
+            workspace: InMemoryWorkspace(),
+            model: model,
+            systemPrompt: "You are a concise assistant. Keep answers under 60 words.",
+            maxTokens: 400
+        )
+
+        print("[cc] prompt: \(prompt)")
+        print("[cc] streaming response:\n")
+
+        let result = runAgent(
+            context: context,
+            initialMessages: [ConversationMessage(role: .user, text: prompt)]
+        )
+        for try await event in result.events {
+            switch event {
+            case .textChunk(let text):
+                FileHandle.standardOutput.write(Data(text.utf8))
+            case .turnComplete(_, let usage):
+                if let usage {
+                    print("\n\n[usage] prompt=\(usage.promptTokens) completion=\(usage.completionTokens)")
+                } else {
+                    print()
+                }
+            case .error(let message):
+                print("\n[error] \(message)")
+            default:
+                break
+            }
+        }
+
+        await handle.stop()
     }
 }
