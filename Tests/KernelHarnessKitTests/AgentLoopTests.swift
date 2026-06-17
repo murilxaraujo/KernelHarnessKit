@@ -5,13 +5,13 @@ import Foundation
 @Suite("Agent loop")
 struct AgentLoopTests {
     private func makeContext(
-        provider: any LLMProvider,
+        harnessModel: any HarnessModel,
         tools: ToolRegistry = makeBuiltInRegistry(),
         workspace: any WorkspaceProvider = InMemoryWorkspace(),
         maxTurns: Int = 10
     ) -> QueryContext {
         QueryContext(
-            provider: provider,
+            harnessModel: harnessModel,
             toolRegistry: tools,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: workspace,
@@ -31,7 +31,7 @@ struct AgentLoopTests {
         let provider = MockLLMProvider(script: [
             .response(text: "hi there"),
         ])
-        let context = makeContext(provider: provider)
+        let context = makeContext(harnessModel: provider)
         let result = runAgent(
             context: context,
             initialMessages: [ConversationMessage(role: .user, text: "hello")]
@@ -62,7 +62,7 @@ struct AgentLoopTests {
             .response(text: "done"),
         ])
         let workspace = InMemoryWorkspace()
-        let context = makeContext(provider: provider, workspace: workspace)
+        let context = makeContext(harnessModel: provider, workspace: workspace)
 
         let result = runAgent(
             context: context,
@@ -95,7 +95,7 @@ struct AgentLoopTests {
             .response(text: "done"),
         ])
         let workspace = InMemoryWorkspace()
-        let context = makeContext(provider: provider, workspace: workspace)
+        let context = makeContext(harnessModel: provider, workspace: workspace)
 
         let result = runAgent(
             context: context,
@@ -114,7 +114,7 @@ struct AgentLoopTests {
             ]),
             .response(text: "oops"),
         ])
-        let context = makeContext(provider: provider)
+        let context = makeContext(harnessModel: provider)
 
         let result = runAgent(
             context: context,
@@ -135,7 +135,7 @@ struct AgentLoopTests {
             toolCalls: [.init(id: "t1", name: "read_file", input: ["path": "nope"])]
         )
         let provider = MockLLMProvider(script: Array(repeating: loopingResponse, count: 100))
-        let context = makeContext(provider: provider, maxTurns: 3)
+        let context = makeContext(harnessModel: provider, maxTurns: 3)
 
         let result = runAgent(
             context: context,
@@ -165,7 +165,7 @@ struct AgentLoopTests {
         registry.registerBuiltIns()
 
         let context = QueryContext(
-            provider: provider,
+            harnessModel: provider,
             toolRegistry: registry,
             permissionChecker: DefaultPermissionChecker(mode: .readOnly),
             workspace: InMemoryWorkspace(),
@@ -189,7 +189,7 @@ struct AgentLoopTests {
 
     @Test func providerReceivesStrippedModelId() async throws {
         let provider = MockLLMProvider(script: [.response(text: "ok")])
-        let context = makeContext(provider: provider)
+        let context = makeContext(harnessModel: provider)
 
         let result = runAgent(
             context: context,

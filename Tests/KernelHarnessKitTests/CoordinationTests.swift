@@ -12,7 +12,7 @@ struct SubAgentExecutorTests {
         let executor = SubAgentExecutor(
             workspace: InMemoryWorkspace(),
             toolRegistry: registry,
-            provider: provider,
+            harnessModel: provider,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             config: SubAgentConfig(systemPrompt: "you are a helper", model: "gpt-4o")
         )
@@ -36,7 +36,7 @@ struct SubAgentExecutorTests {
         let executor = SubAgentExecutor(
             workspace: InMemoryWorkspace(),
             toolRegistry: registry,
-            provider: provider,
+            harnessModel: provider,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             config: SubAgentConfig(systemPrompt: "", model: "gpt-4o", maxTurns: 3)
         )
@@ -67,7 +67,7 @@ struct BatchExecutorTests {
             return SubAgentExecutor(
                 workspace: workspace,
                 toolRegistry: registry,
-                provider: provider,
+                harnessModel: provider,
                 permissionChecker: permissions,
                 config: SubAgentConfig(systemPrompt: "", model: "gpt-4o", maxTurns: 3)
             )
@@ -97,7 +97,7 @@ struct BatchExecutorTests {
             return SubAgentExecutor(
                 workspace: workspace,
                 toolRegistry: registry,
-                provider: provider,
+                harnessModel: provider,
                 permissionChecker: permissions,
                 config: SubAgentConfig(systemPrompt: "", model: "gpt-4o", maxTurns: 2)
             )
@@ -125,7 +125,7 @@ struct BatchExecutorTests {
             SubAgentExecutor(
                 workspace: InMemoryWorkspace(),
                 toolRegistry: ToolRegistry(),
-                provider: MockLLMProvider(script: []),
+                harnessModel: MockLLMProvider(script: []),
                 permissionChecker: DefaultPermissionChecker(mode: .auto),
                 config: SubAgentConfig(systemPrompt: "", model: "m")
             )

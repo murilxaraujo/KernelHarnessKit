@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import KernelHarnessKit
+@testable import KernelHarnessOpenAICompatible
 
 @Suite("ProviderRegistry")
 struct ProviderRegistryTests {

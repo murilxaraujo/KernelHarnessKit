@@ -4,11 +4,11 @@ import Foundation
 
 @Suite("HarnessEngine")
 struct HarnessEngineTests {
-    private func makeContext(provider: any LLMProvider, workspace: any WorkspaceProvider = InMemoryWorkspace()) -> HarnessContext {
+    private func makeContext(harnessModel: any HarnessModel, workspace: any WorkspaceProvider = InMemoryWorkspace()) -> HarnessContext {
         let registry = ToolRegistry()
         registry.registerBuiltIns()
         return HarnessContext(
-            provider: provider,
+            harnessModel: harnessModel,
             toolRegistry: registry,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: workspace,
@@ -33,7 +33,7 @@ struct HarnessEngineTests {
         )
         let engine = HarnessEngine(
             definition: definition,
-            context: makeContext(provider: MockLLMProvider(script: []), workspace: workspace)
+            context: makeContext(harnessModel: MockLLMProvider(script: []), workspace: workspace)
         )
 
         var events: [AgentEvent] = []
@@ -55,7 +55,7 @@ struct HarnessEngineTests {
         let definition = HarnessDefinition(type: "s", displayName: "S", description: "", phases: [phase])
         let engine = HarnessEngine(
             definition: definition,
-            context: makeContext(provider: provider, workspace: workspace)
+            context: makeContext(harnessModel: provider, workspace: workspace)
         )
         for try await _ in engine.run() {}
         #expect(try await workspace.readFile(path: "summary.md") == "summary goes here")
@@ -80,7 +80,7 @@ struct HarnessEngineTests {
         let definition = HarnessDefinition(type: "w", displayName: "W", description: "", phases: [phase])
         let engine = HarnessEngine(
             definition: definition,
-            context: makeContext(provider: provider, workspace: workspace)
+            context: makeContext(harnessModel: provider, workspace: workspace)
         )
         for try await _ in engine.run() {}
         #expect(try await workspace.readFile(path: "note.md") == "hi")
@@ -101,7 +101,7 @@ struct HarnessEngineTests {
         )
         let engine = HarnessEngine(
             definition: HarnessDefinition(type: "t", displayName: "t", description: "", phases: [p1, p2]),
-            context: makeContext(provider: MockLLMProvider(script: []), workspace: workspace)
+            context: makeContext(harnessModel: MockLLMProvider(script: []), workspace: workspace)
         )
 
         var phaseStarts: [String] = []
@@ -154,7 +154,7 @@ struct HarnessEngineTests {
         let engine = HarnessEngine(
             definition: definition,
             context: HarnessContext(
-                provider: sharedProvider,
+                harnessModel: sharedProvider,
                 toolRegistry: registry,
                 permissionChecker: DefaultPermissionChecker(mode: .auto),
                 workspace: workspace,
@@ -178,7 +178,7 @@ struct HarnessEngineTests {
         let engine = HarnessEngine(
             definition: HarnessDefinition(type: "ha", displayName: "", description: "", phases: [phase]),
             context: HarnessContext(
-                provider: MockLLMProvider(script: []),
+                harnessModel: MockLLMProvider(script: []),
                 toolRegistry: ToolRegistry(),
                 permissionChecker: DefaultPermissionChecker(mode: .auto),
                 workspace: workspace,
@@ -206,7 +206,7 @@ struct HarnessEngineTests {
         )
         let engine = HarnessEngine(
             definition: HarnessDefinition(type: "b", displayName: "", description: "", phases: [phase]),
-            context: makeContext(provider: MockLLMProvider(script: []))
+            context: makeContext(harnessModel: MockLLMProvider(script: []))
         )
 
         var errored = false
@@ -234,7 +234,7 @@ struct HarnessEngineTests {
         )
         let engine = HarnessEngine(
             definition: HarnessDefinition(type: "t", displayName: "", description: "", phases: [phase]),
-            context: makeContext(provider: MockLLMProvider(script: []))
+            context: makeContext(harnessModel: MockLLMProvider(script: []))
         )
 
         var threw = false
@@ -247,11 +247,19 @@ struct HarnessEngineTests {
     }
 }
 
-/// A provider that delegates to a fresh MockLLMProvider from a factory on
-/// each call — gives each sub-agent in a batch its own scripted reply.
-final class RotatingMockProvider: LLMProvider, @unchecked Sendable {
+/// A model that delegates to a fresh MockLLMProvider from a factory on each
+/// call — gives each sub-agent in a batch its own scripted reply.
+final class RotatingMockProvider: LLMProvider, HarnessModel, @unchecked Sendable {
     let box: ProviderFactoryBox
     init(box: ProviderFactoryBox) { self.box = box }
+
+    func streamTurn(
+        messages: [ConversationMessage],
+        tools: [[String: Any]]?,
+        options: HarnessGenerationOptions
+    ) -> AsyncThrowingStream<HarnessModelEvent, Error> {
+        box.next().streamTurn(messages: messages, tools: tools, options: options)
+    }
 
     func streamChat(
         model: String,

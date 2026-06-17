@@ -1,4 +1,5 @@
 import Foundation
+import KernelHarnessKit
 
 /// Maps a `vendor/` prefix on a model identifier to an ``LLMProvider``
 /// instance.

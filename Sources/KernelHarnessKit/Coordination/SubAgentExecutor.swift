@@ -5,7 +5,7 @@ public struct SubAgentConfig: Sendable {
     /// System prompt for the sub-agent.
     public let systemPrompt: String
 
-    /// Model identifier (e.g., `"openai/gpt-4o-mini"`).
+    /// Model identifier passed to the harness model when applicable.
     public let model: String
 
     /// Maximum tokens in a single LLM response.
@@ -36,20 +36,20 @@ public struct SubAgentConfig: Sendable {
 public struct SubAgentExecutor: Sendable {
     public let workspace: any WorkspaceProvider
     public let toolRegistry: ToolRegistry
-    public let provider: any LLMProvider
+    public let harnessModel: any HarnessModel
     public let permissionChecker: any PermissionChecker
     public let config: SubAgentConfig
 
     public init(
         workspace: any WorkspaceProvider,
         toolRegistry: ToolRegistry,
-        provider: any LLMProvider,
+        harnessModel: any HarnessModel,
         permissionChecker: any PermissionChecker,
         config: SubAgentConfig
     ) {
         self.workspace = workspace
         self.toolRegistry = toolRegistry
-        self.provider = provider
+        self.harnessModel = harnessModel
         self.permissionChecker = permissionChecker
         self.config = config
     }
@@ -66,7 +66,7 @@ public struct SubAgentExecutor: Sendable {
         let curated = toolRegistry.filtered(excluding: ["task", "write_todos", "read_todos"])
 
         let context = QueryContext(
-            provider: provider,
+            harnessModel: harnessModel,
             toolRegistry: curated,
             permissionChecker: permissionChecker,
             workspace: workspace,

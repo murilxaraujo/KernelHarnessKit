@@ -102,14 +102,17 @@ private func runAgentLoop(
         turnCount += 1
 
         let snapshot = await buffer.snapshot()
-        let stream = context.provider.streamChat(
-            model: strippingVendorPrefix(context.model),
+        let stream = context.harnessModel.streamTurn(
             messages: snapshot,
-            systemPrompt: context.systemPrompt.isEmpty ? nil : context.systemPrompt,
             tools: context.toolRegistry.count == 0 ? nil : context.toolRegistry.apiSchema(),
-            responseFormat: context.responseFormat,
-            temperature: context.temperature,
-            maxTokens: context.maxTokens
+            options: HarnessGenerationOptions(
+                model: context.model,
+                systemPrompt: context.systemPrompt.isEmpty ? nil : context.systemPrompt,
+                responseFormat: context.responseFormat,
+                temperature: context.temperature,
+                maximumResponseTokens: context.maxTokens,
+                metadata: context.toolMetadata
+            )
         )
 
         var finalMessage: ConversationMessage?
@@ -127,6 +130,8 @@ private func runAgentLoop(
             case .messageComplete(let message, let u):
                 finalMessage = message
                 usage = u
+            case .metadata:
+                break
             case .retry(_, let delay, let reason):
                 continuation.yield(.status("retrying in \(delay)s: \(reason)"))
             }
@@ -240,11 +245,3 @@ private func runTool(
     return await tool.execute(rawInput: call.input, context: toolContext)
 }
 
-/// Strip a `vendor/` prefix from a model identifier. The engine passes the
-/// already-routed provider the bare model id.
-private func strippingVendorPrefix(_ model: String) -> String {
-    if let slash = model.firstIndex(of: "/") {
-        return String(model[model.index(after: slash)...])
-    }
-    return model
-}

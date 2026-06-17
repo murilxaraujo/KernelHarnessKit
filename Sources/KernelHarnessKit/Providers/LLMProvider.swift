@@ -14,7 +14,12 @@ public enum StreamChunk: Sendable {
     case retry(attempt: Int, delay: TimeInterval, reason: String)
 }
 
-/// Protocol every LLM provider must satisfy.
+/// Legacy protocol for OpenAI-compatible and server-backed providers.
+///
+/// New integrations should prefer ``HarnessModel``. This protocol remains as a
+/// compatibility layer: ``LegacyLLMProviderHarnessModel`` adapts it into the
+/// model facade used by the agent loop, while Apple FoundationModels adapters
+/// can bypass provider-specific wire formats entirely.
 ///
 /// Providers translate the provider-agnostic ``ConversationMessage`` and tool
 /// schemas into their native wire format, stream the completion back as

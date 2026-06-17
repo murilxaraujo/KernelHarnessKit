@@ -2,8 +2,8 @@ import Foundation
 
 /// Configuration for a ``HarnessEngine`` run.
 public struct HarnessContext: Sendable {
-    /// The LLM provider.
-    public let provider: any LLMProvider
+    /// Model facade used by LLM phases.
+    public let harnessModel: any HarnessModel
 
     /// The tool registry. Per-phase filtering happens internally.
     public let toolRegistry: ToolRegistry
@@ -27,16 +27,16 @@ public struct HarnessContext: Sendable {
     public let defaultMaxTokens: Int
 
     public init(
-        provider: any LLMProvider,
+        harnessModel: any HarnessModel,
         toolRegistry: ToolRegistry,
         permissionChecker: any PermissionChecker,
         workspace: any WorkspaceProvider,
-        model: String,
+        model: String = "",
         askUserHandler: (any AskUserHandler)? = nil,
         metadata: [String: JSONValue] = [:],
         defaultMaxTokens: Int = 4096
     ) {
-        self.provider = provider
+        self.harnessModel = harnessModel
         self.toolRegistry = toolRegistry
         self.permissionChecker = permissionChecker
         self.workspace = workspace
@@ -235,7 +235,7 @@ public actor HarnessEngine {
     ) async throws -> String {
         let curated = context.toolRegistry.filtered(allowing: phase.tools)
         let query = QueryContext(
-            provider: context.provider,
+            harnessModel: context.harnessModel,
             toolRegistry: curated,
             permissionChecker: context.permissionChecker,
             workspace: context.workspace,
@@ -268,7 +268,7 @@ public actor HarnessEngine {
         let executor = SubAgentExecutor(
             workspace: context.workspace,
             toolRegistry: curated,
-            provider: context.provider,
+            harnessModel: context.harnessModel,
             permissionChecker: context.permissionChecker,
             config: SubAgentConfig(
                 systemPrompt: phase.systemPrompt,
@@ -291,7 +291,7 @@ public actor HarnessEngine {
     ) async throws -> String {
         let curated = context.toolRegistry.filtered(allowing: phase.tools)
         let systemPrompt = phase.systemPrompt
-        let provider = context.provider
+        let harnessModel = context.harnessModel
         let permissionChecker = context.permissionChecker
         let workspace = context.workspace
         let model = context.model
@@ -301,7 +301,7 @@ public actor HarnessEngine {
             SubAgentExecutor(
                 workspace: workspace,
                 toolRegistry: curated,
-                provider: provider,
+                harnessModel: harnessModel,
                 permissionChecker: permissionChecker,
                 config: SubAgentConfig(
                     systemPrompt: systemPrompt,

@@ -1,4 +1,5 @@
 import Foundation
+import KernelHarnessKit
 import OpenAI
 
 /// A provider that speaks any OpenAI-compatible chat completions endpoint.

@@ -1,5 +1,6 @@
 import Foundation
 import KernelHarnessKit
+import KernelHarnessOpenAICompatible
 import KernelHarnessMCPServer
 import KernelHarnessClaudeCode
 import Logging
@@ -76,7 +77,7 @@ struct KernelHarnessDemo {
 
         let workspace = InMemoryWorkspace()
         let context = QueryContext(
-            provider: provider,
+            harnessModel: LegacyLLMProviderHarnessModel(provider: provider),
             toolRegistry: ToolRegistry(),
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: workspace,
@@ -121,7 +122,7 @@ struct KernelHarnessDemo {
 
         let definition = demoHarness()
         let context = HarnessContext(
-            provider: provider,
+            harnessModel: LegacyLLMProviderHarnessModel(provider: provider),
             toolRegistry: registry,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: workspace,
@@ -252,7 +253,7 @@ extension KernelHarnessDemo {
         )
 
         let context = QueryContext(
-            provider: provider,
+            harnessModel: LegacyLLMProviderHarnessModel(provider: provider),
             toolRegistry: ToolRegistry(),
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: InMemoryWorkspace(),

@@ -17,7 +17,7 @@ import Foundation
 /// Each call to ``streamChat`` consumes the next scripted response. When the
 /// script is exhausted, the provider emits an empty assistant message to end
 /// the loop.
-final class MockLLMProvider: LLMProvider, @unchecked Sendable {
+final class MockLLMProvider: LLMProvider, HarnessModel, @unchecked Sendable {
     struct ToolCall: Sendable {
         let id: String
         let name: String
@@ -51,6 +51,40 @@ final class MockLLMProvider: LLMProvider, @unchecked Sendable {
     init(script: [Response]) {
         self.script = script
         self.cursor = CallCounter()
+    }
+
+    func streamTurn(
+        messages: [ConversationMessage],
+        tools: [[String: Any]]?,
+        options: HarnessGenerationOptions
+    ) -> AsyncThrowingStream<HarnessModelEvent, Error> {
+        let stream = streamChat(
+            model: strippingVendorPrefix(options.model),
+            messages: messages,
+            systemPrompt: options.systemPrompt,
+            tools: tools,
+            responseFormat: options.responseFormat,
+            temperature: options.temperature,
+            maxTokens: options.maximumResponseTokens
+        )
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for try await chunk in stream {
+                        switch chunk {
+                        case .textDelta(let text): continuation.yield(.textDelta(text))
+                        case .toolCallDelta(let index, let id, let name, let argumentsChunk):
+                            continuation.yield(.toolCallDelta(index: index, id: id, name: name, argumentsChunk: argumentsChunk))
+                        case .messageComplete(let message, let usage): continuation.yield(.messageComplete(message, usage))
+                        case .retry(let attempt, let delay, let reason): continuation.yield(.retry(attempt: attempt, delay: delay, reason: reason))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     func streamChat(

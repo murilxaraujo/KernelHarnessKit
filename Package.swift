@@ -11,6 +11,8 @@ let package = Package(
     ],
     products: [
         .library(name: "KernelHarnessKit", targets: ["KernelHarnessKit"]),
+        .library(name: "KernelHarnessFoundationModels", targets: ["KernelHarnessFoundationModels"]),
+        .library(name: "KernelHarnessOpenAICompatible", targets: ["KernelHarnessOpenAICompatible"]),
         .library(name: "KernelHarnessPostgres", targets: ["KernelHarnessPostgres"]),
         .library(name: "KernelHarnessMCPServer", targets: ["KernelHarnessMCPServer"]),
         .library(name: "KernelHarnessClaudeCode", targets: ["KernelHarnessClaudeCode"]),
@@ -22,18 +24,33 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-        .package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.3.0"),
     ],
     targets: [
         .target(
             name: "KernelHarnessKit",
             dependencies: [
-                .product(name: "OpenAI", package: "OpenAI"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOFoundationCompat", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "KernelHarnessFoundationModels",
+            dependencies: ["KernelHarnessKit"],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "KernelHarnessOpenAICompatible",
+            dependencies: [
+                "KernelHarnessKit",
+                .product(name: "OpenAI", package: "OpenAI"),
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
@@ -77,6 +94,7 @@ let package = Package(
             name: "KernelHarnessDemo",
             dependencies: [
                 "KernelHarnessKit",
+                "KernelHarnessOpenAICompatible",
                 "KernelHarnessMCPServer",
                 "KernelHarnessClaudeCode",
             ],
@@ -86,7 +104,7 @@ let package = Package(
         ),
         .testTarget(
             name: "KernelHarnessKitTests",
-            dependencies: ["KernelHarnessKit"]
+            dependencies: ["KernelHarnessKit", "KernelHarnessOpenAICompatible"]
         ),
         .testTarget(
             name: "KernelHarnessPostgresTests",

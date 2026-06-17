@@ -2,9 +2,9 @@
 
 **Swift infrastructure for custom AI agent harnesses.**
 
-Agent loop · Tool system · Multi-agent coordination · Deterministic workflow engine ·
-LLM provider abstraction · Workspace · Streaming — everything you need to ship a
-custom agent service, minus the domain details *you* supply.
+Harness model facade · Tool system · Multi-agent coordination · Deterministic workflow engine ·
+FoundationModels adapters · Workspace · Streaming — everything you need to ship a
+custom agent service, minus the model heavy lifting Apple now provides.
 
 [![Swift 6.0+](https://img.shields.io/badge/swift-6.0+-orange.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%2014%20%7C%20iOS%2017%20%7C%20Linux-blue)](#platforms)
@@ -17,6 +17,13 @@ custom agent service, minus the domain details *you* supply.
 
 > *"The model is commoditized. Structured enforcement of process is the moat."*
 
+KernelHarnessKit now focuses on the harness layer around model execution:
+workspace, permission gates, deterministic phases, tool curation, streaming,
+and multi-agent coordination. On Xcode 27, Apple's FoundationModels framework
+can run the optimized model stack — System Language Model, Private Cloud
+Compute, Core AI, MLX, or third-party `LanguageModel` packages — behind the
+same harness abstractions.
+
 KernelHarnessKit gives you two complementary execution strategies, so you can pick
 per-task:
 
@@ -24,7 +31,7 @@ per-task:
    `runAgent(context:initialMessages:)` returns a streaming event source.
 2. **Deterministic phase machines** (hard harness) — the system drives, the model
    executes within each constrained phase. Five phase types cover the common
-   shapes of domain work (programmatic, single LLM call, agent loop, batch
+   shapes of domain work (programmatic, single model call, agent loop, batch
    sub-agents, human input).
 
 The framework ports the subsystem decomposition of [OpenHarness](https://github.com/HKUDS/OpenHarness)
@@ -38,18 +45,16 @@ reorder or skip.
 
 ```swift
 import KernelHarnessKit
+import KernelHarnessFoundationModels
 
 let registry = ToolRegistry()
 registry.registerBuiltIns()
 
-let provider = OpenAICompatibleProvider.openai(apiKey: apiKey)
-
 let context = QueryContext(
-    provider: provider,
+    harnessModel: AppleHarnessModels.system(),
     toolRegistry: registry,
     permissionChecker: DefaultPermissionChecker(mode: .auto),
     workspace: InMemoryWorkspace(),
-    model: "openai/gpt-4o-mini",
     systemPrompt: "You are a helpful assistant."
 )
 
@@ -82,26 +87,29 @@ swift run kernel-harness-demo harness
 collection → parallel per-topic analysis via sub-agents → single-call
 summarization. Great for seeing every subsystem exercise at once.
 
-## One provider, many vendors
+## FoundationModels-first
 
-KernelHarnessKit speaks one wire protocol: OpenAI's. Vendor-specific endpoints
-(Anthropic, Google Gemini, DeepSeek, Groq, xAI, OpenRouter, Ollama, vLLM,
-LM Studio) are reached via their OpenAI-compatible mode. This means a **single
-provider implementation** covers the vast majority of production use cases:
+On Apple platforms with Xcode 27, add the `KernelHarnessFoundationModels`
+product and pass any FoundationModels `LanguageModel` through the harness:
 
 ```swift
-let registry = ProviderRegistry(providers: [
-    "openai":    .openai(apiKey: env("OPENAI_API_KEY")),
-    "anthropic": .anthropic(apiKey: env("ANTHROPIC_API_KEY")),
-    "google":    .google(apiKey: env("GOOGLE_AI_API_KEY")),
-    "groq":      .groq(apiKey: env("GROQ_API_KEY")),
-])
+let local = AppleHarnessModels.system()
+let pcc = AppleHarnessModels.privateCloudCompute()
 
-let provider = registry.provider(for: "anthropic/claude-sonnet-4-5")!
+let context = QueryContext(
+    harnessModel: pcc,
+    toolRegistry: registry,
+    permissionChecker: permissions,
+    workspace: workspace,
+    systemPrompt: "Execute the current harness phase."
+)
 ```
 
-A swap-in custom `LLMProvider` conformance is the escape hatch when a vendor's
-OpenAI-compat surface is too limited.
+The core target does not import FoundationModels, so harness definitions,
+workspaces, permissions, persistence, MCP bridging, and Linux/server code stay
+portable. OpenAI-compatible provider code remains in-tree while the package is
+being re-centered, but new integrations should target `HarnessModel` instead
+of `LLMProvider`.
 
 ## Feature matrix
 
@@ -109,7 +117,7 @@ OpenAI-compat surface is too limited.
 |---|---|
 | **Engine** | `AsyncThrowingStream` agent loop with parallel tool dispatch and turn budget. |
 | **Tools** | `Tool` protocol, type-erased `AnyTool`, lock-protected `ToolRegistry`, 8 built-in tools. |
-| **Providers** | One `OpenAICompatibleProvider` implementation + prefix-routed `ProviderRegistry`. |
+| **Models** | Cross-platform `HarnessModel` facade plus Apple FoundationModels adapter target. |
 | **Coordination** | `SubAgentExecutor`, `BatchExecutor` with concurrency control, `AskUserHandler`. |
 | **Harness** | `HarnessEngine` actor running 5 phase types with per-phase timeouts. |
 | **Workspace** | `WorkspaceProvider` protocol + `InMemoryWorkspace` (Postgres impl in companion target). |

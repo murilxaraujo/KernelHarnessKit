@@ -2,11 +2,11 @@ import Foundation
 
 /// Shared context for a single query run.
 ///
-/// Built by the consumer from a provider, a tool registry, a workspace, and
+/// Built by the consumer from a model facade, a tool registry, a workspace, and
 /// tuning knobs. Passed into ``runAgent(context:initialMessages:)``.
 public struct QueryContext: Sendable {
-    /// The LLM provider.
-    public let provider: any LLMProvider
+    /// Model facade used by the agent loop.
+    public let harnessModel: any HarnessModel
 
     /// Tools the agent can invoke.
     public let toolRegistry: ToolRegistry
@@ -17,24 +17,24 @@ public struct QueryContext: Sendable {
     /// Workspace for file I/O.
     public let workspace: any WorkspaceProvider
 
-    /// Model identifier. May include a provider prefix when paired with a
-    /// ``ProviderRegistry`` (e.g., `"openai/gpt-4o"`).
+    /// Model identifier. FoundationModels-backed adapters may ignore this;
+    /// server-backed adapters can use it to select a concrete model.
     public let model: String
 
     /// System prompt.
     public let systemPrompt: String
 
-    /// Maximum tokens in a single LLM response.
+    /// Maximum tokens in a single model response.
     public let maxTokens: Int
 
     /// Turn budget. The loop aborts with ``AgentError/maxTurnsExceeded(_:)``
     /// if reached. The HLD default (matching OpenHarness) is 200.
     public let maxTurns: Int
 
-    /// Sampling temperature. `nil` uses the provider's default.
+    /// Sampling temperature. `nil` uses the model default.
     public let temperature: Double?
 
-    /// Response format requested from the provider.
+    /// Response format requested from the model.
     public let responseFormat: ResponseFormat?
 
     /// Cross-turn metadata propagated into every ``ToolExecutionContext``.
@@ -53,11 +53,11 @@ public struct QueryContext: Sendable {
     public let askUserHandler: (any AskUserHandler)?
 
     public init(
-        provider: any LLMProvider,
+        harnessModel: any HarnessModel,
         toolRegistry: ToolRegistry,
         permissionChecker: any PermissionChecker,
         workspace: any WorkspaceProvider,
-        model: String,
+        model: String = "",
         systemPrompt: String,
         maxTokens: Int = 4096,
         maxTurns: Int = 200,
@@ -68,7 +68,7 @@ public struct QueryContext: Sendable {
         subAgentFactory: (@Sendable () -> SubAgentExecutor)? = nil,
         askUserHandler: (any AskUserHandler)? = nil
     ) {
-        self.provider = provider
+        self.harnessModel = harnessModel
         self.toolRegistry = toolRegistry
         self.permissionChecker = permissionChecker
         self.workspace = workspace
