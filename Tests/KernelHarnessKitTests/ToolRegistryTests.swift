@@ -14,11 +14,14 @@ struct ToolRegistryTests {
         #expect(registry.contains("search_files"))
         #expect(registry.contains("grep"))
         #expect(registry.contains("shell"))
+        #expect(registry.contains("git_status"))
+        #expect(registry.contains("git_diff"))
+        #expect(registry.contains("git_log"))
         #expect(registry.contains("write_todos"))
         #expect(registry.contains("read_todos"))
         #expect(registry.contains("task"))
         #expect(registry.contains("ask_user"))
-        #expect(registry.count == 11)
+        #expect(registry.count == 14)
     }
 
     @Test func filterAllowing() {
@@ -34,7 +37,7 @@ struct ToolRegistryTests {
         let registry = ToolRegistry()
         registry.registerBuiltIns()
         let filtered = registry.filtered(excluding: ["task", "ask_user"])
-        #expect(filtered.count == 9)
+        #expect(filtered.count == 12)
         #expect(filtered.contains("task") == false)
     }
 
@@ -192,6 +195,47 @@ struct WorkspaceToolsTests {
         #expect(timedOut.metadata["timedOut"] == .bool(true))
     }
 
+    @Test func gitToolsReturnStructuredReadOnlyOutput() async throws {
+        let ws = InMemoryWorkspace()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("git-tool-root-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try await runProcess("git", ["init"], cwd: root)
+        try "hello\n".write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        try await runProcess("git", ["add", "README.md"], cwd: root)
+        try await runProcess("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"], cwd: root)
+        try "hello\nworld\n".write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        let context = ToolExecutionContext(
+            workspace: ws,
+            permissionChecker: DefaultPermissionChecker(mode: .readOnly),
+            metadata: ["workspaceRoot": .string(root.path)]
+        )
+
+        let status = await AnyTool(GitStatusTool()).execute(rawInput: [:], context: context)
+        #expect(status.isError == false)
+        #expect(status.metadata["exitCode"] == .integer(0))
+        #expect(status.metadata["operation"] == .string("git_status"))
+        #expect(status.output.contains("README.md"))
+
+        let diff = await AnyTool(GitDiffTool()).execute(rawInput: ["path": "README.md"], context: context)
+        #expect(diff.isError == false)
+        #expect(diff.metadata["operation"] == .string("git_diff"))
+        #expect(diff.output.contains("+world"))
+
+        let log = await AnyTool(GitLogTool()).execute(rawInput: ["max_count": 1], context: context)
+        #expect(log.isError == false)
+        #expect(log.metadata["operation"] == .string("git_log"))
+        #expect(log.output.contains("initial"))
+    }
+
+    @Test func gitDiffRejectsPathTraversal() async throws {
+        let ws = InMemoryWorkspace()
+        let context = makeContext(workspace: ws)
+        let result = await AnyTool(GitDiffTool()).execute(rawInput: ["path": "../secret"], context: context)
+        #expect(result.isError == true)
+        #expect(result.error?.kind == .invalidInput)
+    }
+
     @Test func invalidInputReturnsFailure() async throws {
         let ws = InMemoryWorkspace()
         let context = makeContext(workspace: ws)
@@ -230,5 +274,19 @@ struct PlanningToolsTests {
         #expect(read.output.contains("first"))
         #expect(read.output.contains("second"))
         #expect(read.output.contains("in_progress"))
+    }
+}
+
+private func runProcess(_ executable: String, _ arguments: [String], cwd: URL) async throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = [executable] + arguments
+    process.currentDirectoryURL = cwd
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    try process.run()
+    await Task.detached { process.waitUntilExit() }.value
+    if process.terminationStatus != 0 {
+        throw NSError(domain: "KernelHarnessKitTests", code: Int(process.terminationStatus))
     }
 }

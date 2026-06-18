@@ -107,6 +107,9 @@ extension ToolRegistry {
         register(GrepTool())
         #if os(macOS) || os(Linux)
         register(ShellTool())
+        register(GitStatusTool())
+        register(GitDiffTool())
+        register(GitLogTool())
         #endif
         register(WriteTodosTool())
         register(ReadTodosTool())
