@@ -13,11 +13,12 @@ struct ToolRegistryTests {
         #expect(registry.contains("list_files"))
         #expect(registry.contains("search_files"))
         #expect(registry.contains("grep"))
+        #expect(registry.contains("shell"))
         #expect(registry.contains("write_todos"))
         #expect(registry.contains("read_todos"))
         #expect(registry.contains("task"))
         #expect(registry.contains("ask_user"))
-        #expect(registry.count == 10)
+        #expect(registry.count == 11)
     }
 
     @Test func filterAllowing() {
@@ -33,7 +34,7 @@ struct ToolRegistryTests {
         let registry = ToolRegistry()
         registry.registerBuiltIns()
         let filtered = registry.filtered(excluding: ["task", "ask_user"])
-        #expect(filtered.count == 8)
+        #expect(filtered.count == 9)
         #expect(filtered.contains("task") == false)
     }
 
@@ -156,6 +157,39 @@ struct WorkspaceToolsTests {
         let result = await reader.execute(rawInput: ["path": "../secret.txt"], context: context)
         #expect(result.isError == true)
         #expect(result.error?.kind == .invalidInput)
+    }
+
+    @Test func shellRunsCommandInWorkspaceRoot() async throws {
+        let ws = InMemoryWorkspace()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("shell-tool-root-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let context = ToolExecutionContext(
+            workspace: ws,
+            permissionChecker: DefaultPermissionChecker(mode: .auto),
+            metadata: ["workspaceRoot": .string(root.path)]
+        )
+        let shell = AnyTool(ShellTool())
+        let result = await shell.execute(rawInput: ["command": "pwd", "timeout_seconds": 5], context: context)
+        #expect(result.isError == false)
+        #expect(result.metadata["exitCode"] == .integer(0))
+        #expect(result.metadata["workingDirectory"] == .string(root.path))
+        let pwd = result.metadata["stdout"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(pwd?.hasSuffix(root.lastPathComponent) == true)
+    }
+
+    @Test func shellCapturesFailureAndTimeout() async throws {
+        let ws = InMemoryWorkspace()
+        let context = makeContext(workspace: ws)
+        let shell = AnyTool(ShellTool())
+
+        let failed = await shell.execute(rawInput: ["command": "echo nope >&2; exit 7"], context: context)
+        #expect(failed.isError == true)
+        #expect(failed.metadata["exitCode"] == .integer(7))
+        #expect(failed.metadata["stderr"]?.stringValue?.contains("nope") == true)
+
+        let timedOut = await shell.execute(rawInput: ["command": "sleep 2", "timeout_seconds": 1], context: context)
+        #expect(timedOut.isError == true)
+        #expect(timedOut.metadata["timedOut"] == .bool(true))
     }
 
     @Test func invalidInputReturnsFailure() async throws {

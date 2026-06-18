@@ -105,6 +105,9 @@ extension ToolRegistry {
         register(ListFilesTool())
         register(SearchFilesTool())
         register(GrepTool())
+        #if os(macOS) || os(Linux)
+        register(ShellTool())
+        #endif
         register(WriteTodosTool())
         register(ReadTodosTool())
         register(TaskTool())
