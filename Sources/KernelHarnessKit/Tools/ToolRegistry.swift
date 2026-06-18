@@ -103,6 +103,8 @@ extension ToolRegistry {
         register(ReadFileTool())
         register(EditFileTool())
         register(ListFilesTool())
+        register(SearchFilesTool())
+        register(GrepTool())
         register(WriteTodosTool())
         register(ReadTodosTool())
         register(TaskTool())

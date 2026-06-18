@@ -11,11 +11,13 @@ struct ToolRegistryTests {
         #expect(registry.contains("read_file"))
         #expect(registry.contains("edit_file"))
         #expect(registry.contains("list_files"))
+        #expect(registry.contains("search_files"))
+        #expect(registry.contains("grep"))
         #expect(registry.contains("write_todos"))
         #expect(registry.contains("read_todos"))
         #expect(registry.contains("task"))
         #expect(registry.contains("ask_user"))
-        #expect(registry.count == 8)
+        #expect(registry.count == 10)
     }
 
     @Test func filterAllowing() {
@@ -31,7 +33,7 @@ struct ToolRegistryTests {
         let registry = ToolRegistry()
         registry.registerBuiltIns()
         let filtered = registry.filtered(excluding: ["task", "ask_user"])
-        #expect(filtered.count == 6)
+        #expect(filtered.count == 8)
         #expect(filtered.contains("task") == false)
     }
 
@@ -123,6 +125,37 @@ struct WorkspaceToolsTests {
         #expect(result.isError == false)
         #expect(result.output.contains("a.md"))
         #expect(result.output.contains("b.md"))
+        #expect(result.metadata["count"] == .integer(2))
+    }
+
+    @Test func searchFilesFindsPathMatches() async throws {
+        let ws = InMemoryWorkspace(seed: ["Sources/App.swift": "app", "README.md": "readme"])
+        let context = makeContext(workspace: ws)
+        let search = AnyTool(SearchFilesTool())
+        let result = await search.execute(rawInput: ["query": "swift"], context: context)
+        #expect(result.isError == false)
+        #expect(result.output.contains("Sources/App.swift"))
+        #expect(result.metadata["count"] == .integer(1))
+    }
+
+    @Test func grepFindsLineMatches() async throws {
+        let ws = InMemoryWorkspace(seed: ["a.md": "hello\nworld", "b.md": "HELLO again"])
+        let context = makeContext(workspace: ws)
+        let grep = AnyTool(GrepTool())
+        let result = await grep.execute(rawInput: ["query": "hello"], context: context)
+        #expect(result.isError == false)
+        #expect(result.output.contains("a.md:1:hello"))
+        #expect(result.output.contains("b.md:1:HELLO again"))
+        #expect(result.metadata["count"] == .integer(2))
+    }
+
+    @Test func workspaceToolsRejectPathTraversal() async throws {
+        let ws = InMemoryWorkspace(seed: ["safe.txt": "safe"])
+        let context = makeContext(workspace: ws)
+        let reader = AnyTool(ReadFileTool())
+        let result = await reader.execute(rawInput: ["path": "../secret.txt"], context: context)
+        #expect(result.isError == true)
+        #expect(result.error?.kind == .invalidInput)
     }
 
     @Test func invalidInputReturnsFailure() async throws {
