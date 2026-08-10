@@ -56,7 +56,12 @@ public actor LocalFileWorkspace: WorkspaceProvider {
 
         var files: [WorkspaceFile] = []
         while let url = enumerator.nextObject() as? URL {
-            let relative = relativePath(from: root, to: url)
+            // The enumerator may return paths through a different symlink
+            // resolution (e.g. `/private/var/...`) than `canonicalRoot()`
+            // (`/var/...`). Normalize both sides so the relative prefix math
+            // is consistent and no spurious path component is injected.
+            let normalized = url.resolvingSymlinksInPath().standardizedFileURL
+            let relative = relativePath(from: root, to: normalized)
             if shouldSkip(relativePath: relative, url: url) {
                 if isDirectory(url) { enumerator.skipDescendants() }
                 continue
