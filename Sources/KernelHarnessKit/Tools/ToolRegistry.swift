@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 
 /// A registry mapping tool names to type-erased implementations.
 ///
@@ -12,7 +13,7 @@ public final class ToolRegistry: @unchecked Sendable {
     public init() {}
 
     /// Register a concrete tool. Replaces any existing tool with the same name.
-    public func register<T: Tool>(_ tool: T) {
+    public func register<T: HarnessTool>(_ tool: T) {
         let any = AnyTool(tool)
         withLock { tools[any.name] = any }
     }
@@ -43,11 +44,6 @@ public final class ToolRegistry: @unchecked Sendable {
         withLock { tools.values.map(\.metadata) }
     }
 
-    /// The schema array to send to the LLM provider as the `tools` field.
-    public func apiSchema() -> [[String: Any]] {
-        withLock { tools.values.map(\.apiSchema) }
-    }
-
     /// Return a new registry containing only the tools whose names are in
     /// `names`.
     public func filtered(allowing names: Set<String>) -> ToolRegistry {
@@ -71,6 +67,19 @@ public final class ToolRegistry: @unchecked Sendable {
             }
         }
         return child
+    }
+
+    /// Build Foundation Models tools for one agent run. Each adapter closes
+    /// over that run's workspace, permission policy, and event sink.
+    func foundationTools(
+        context: ToolExecutionContext,
+        maximumCalls: Int,
+        emit: @escaping @Sendable (AgentEvent) -> Void
+    ) -> [any FoundationModels.Tool] {
+        let budget = ToolCallBudget()
+        return allTools().map { tool in
+            FoundationModelToolAdapter(tool: tool, context: context, budget: budget, maximumCalls: maximumCalls, emit: emit)
+        }
     }
 
     /// `true` if a tool with the given name is registered.
@@ -105,7 +114,7 @@ extension ToolRegistry {
         register(ListFilesTool())
         register(SearchFilesTool())
         register(GrepTool())
-        #if os(macOS) || os(Linux)
+        #if os(macOS)
         register(ShellTool())
         register(GitStatusTool())
         register(GitDiffTool())

@@ -39,11 +39,12 @@ public struct ToolMetadata: Codable, Sendable, Hashable {
     }
 }
 
-/// A capability the agent can invoke.
+/// A capability the harness can invoke.
 ///
 /// Every tool has a stable ``name``, a natural-language ``description`` shown
 /// to the model, a `Codable` ``Input`` type that validates arguments, and an
-/// ``execute(_:context:)`` method that performs the work.
+/// ``execute(_:context:)`` method that performs the work. The Foundation
+/// Models adapter derives the generation schema from ``inputSchema``.
 ///
 /// ### Declaring a tool
 ///
@@ -67,11 +68,7 @@ public struct ToolMetadata: Codable, Sendable, Hashable {
 /// ```
 ///
 /// Register the tool into a ``ToolRegistry`` by calling `ToolRegistry.register`.
-/// Tool input is decoded from the model-supplied JSON using `JSONEncoder`/
-/// `JSONDecoder`; input that doesn't match the `Input` type surfaces as a
-/// ``ToolResult`` with ``ToolResult/isError`` set, never as a thrown error.
-public protocol Tool: Sendable {
-    /// The `Codable` type that parses this tool's JSON arguments.
+public protocol HarnessTool: Sendable {
     associatedtype Input: Codable & Sendable
 
     /// Stable tool name. Must be a valid identifier acceptable to the LLM
@@ -100,7 +97,7 @@ public protocol Tool: Sendable {
     func isReadOnly(_ input: Input) -> Bool
 }
 
-extension Tool {
+extension HarnessTool {
     public static var outputSchema: JSONSchema {
         .string(description: "Human-readable tool output")
     }
@@ -118,4 +115,5 @@ extension Tool {
     }
 
     public func isReadOnly(_ input: Input) -> Bool { false }
+
 }

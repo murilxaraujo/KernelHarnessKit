@@ -1,35 +1,18 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.4
 import PackageDescription
 
 let package = Package(
     name: "KernelHarnessKit",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .tvOS(.v17),
-        .watchOS(.v10),
+        .macOS(.v27),
+        .iOS(.v27),
+        .watchOS(.v27),
     ],
     products: [
         .library(name: "KernelHarnessKit", targets: ["KernelHarnessKit"]),
-        .library(name: "KernelHarnessFoundationModels", targets: ["KernelHarnessFoundationModels"]),
-        .library(name: "KernelHarnessOpenAICompatible", targets: ["KernelHarnessOpenAICompatible"]),
     ],
     targets: [
-        .target(
-            name: "KernelHarnessKit"
-        ),
-        .target(
-            name: "KernelHarnessFoundationModels",
-            dependencies: ["KernelHarnessKit"]
-        ),
-        .target(
-            name: "KernelHarnessOpenAICompatible",
-            dependencies: ["KernelHarnessKit"],
-            exclude: ["OpenAICompatibleProvider.swift"]
-        ),
-        .testTarget(
-            name: "KernelHarnessKitTests",
-            dependencies: ["KernelHarnessKit", "KernelHarnessOpenAICompatible"]
-        ),
+        .target(name: "KernelHarnessKit"),
+        .testTarget(name: "KernelHarnessKitTests", dependencies: ["KernelHarnessKit"]),
     ]
 )

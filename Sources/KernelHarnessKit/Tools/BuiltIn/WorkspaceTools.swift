@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tool: `write_file` — create or overwrite a workspace file.
-public struct WriteFileTool: Tool {
+public struct WriteFileTool: HarnessTool {
     public let name = "write_file"
     public let description = """
     Create or overwrite a file in the workspace. Use this to produce \
@@ -47,7 +47,7 @@ public struct WriteFileTool: Tool {
 }
 
 /// Tool: `read_file` — read a workspace file.
-public struct ReadFileTool: Tool {
+public struct ReadFileTool: HarnessTool {
     public let name = "read_file"
     public let description = "Read the content of a file in the workspace."
 
@@ -88,7 +88,7 @@ public struct ReadFileTool: Tool {
 }
 
 /// Tool: `edit_file` — exact-match string replacement.
-public struct EditFileTool: Tool {
+public struct EditFileTool: HarnessTool {
     public let name = "edit_file"
     public let description = """
     Replace an exact substring in a workspace file. The `old_string` must \
@@ -149,7 +149,7 @@ public struct EditFileTool: Tool {
 }
 
 /// Tool: `list_files` — enumerate workspace contents.
-public struct ListFilesTool: Tool {
+public struct ListFilesTool: HarnessTool {
     public let name = "list_files"
     public let description = "List every file in the workspace with sizes and sources."
 
@@ -187,7 +187,7 @@ public struct ListFilesTool: Tool {
 }
 
 /// Tool: `search_files` — find workspace file paths by substring.
-public struct SearchFilesTool: Tool {
+public struct SearchFilesTool: HarnessTool {
     public let name = "search_files"
     public let description = "Search workspace file paths by case-insensitive substring."
 
@@ -242,7 +242,7 @@ public struct SearchFilesTool: Tool {
 }
 
 /// Tool: `grep` — search workspace file contents by substring.
-public struct GrepTool: Tool {
+public struct GrepTool: HarnessTool {
     public let name = "grep"
     public let description = "Search text contents of workspace files by case-insensitive substring."
 

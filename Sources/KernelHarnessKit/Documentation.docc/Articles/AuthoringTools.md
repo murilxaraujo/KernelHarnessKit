@@ -56,7 +56,7 @@ shipped with the framework:
 
 ``AnyTool/metadata`` and ``ToolRegistry/allMetadata()`` expose the stable tool
 contract: name, description, permission hints, input schema, and output schema.
-Providers typically receive only the input schema through ``AnyTool/apiSchema``;
+Foundation Models receives the argument schema from each tool adapter;
 clients and registries can use the richer metadata for UI, review, and policy.
 
 ### Read-only vs. writing tools
@@ -82,10 +82,9 @@ then ``AgentEvent/toolExecutionCompleted(callId:name:result:)``. Failed calls ar
 represented by a completed event whose result has `isError == true` and a
 structured ``ToolError``.
 
-When the model emits multiple tool calls in one turn, KernelHarnessKit starts
-all calls first, dispatches them concurrently with Swift task groups, streams
-completion events as each call finishes, and preserves the original model order
-when appending tool results back to the conversation.
+Foundation Models controls tool-call sequencing and may invoke tools
+concurrently. KernelHarnessKit's adapter emits tool lifecycle events and
+checks permissions for each call.
 
 ### Bridging MCP servers
 
@@ -97,5 +96,6 @@ try await client.connect()
 try await MCPToolBridge(client: client).registerTools(into: registry)
 ```
 
-See <doc:Providers> for the provider abstraction the tools end up being
-advertised to.
+Registered tools are adapted to Apple's Foundation Models `Tool` protocol for
+each session. MCP descriptors remain available to MCP clients through the
+separate server bridge.

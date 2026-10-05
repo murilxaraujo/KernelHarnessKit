@@ -38,13 +38,12 @@ public struct BatchExecutor: Sendable {
     public let concurrency: Int
 
     /// Factory that produces a fresh ``SubAgentExecutor`` per invocation.
-    /// Supplied as a factory so each sub-agent has an independent message
-    /// buffer and conversation.
-    public let subAgentFactory: @Sendable () -> SubAgentExecutor
+    /// Each sub-agent gets its own Foundation Models session.
+    public let subAgentFactory: @Sendable () -> any SubAgentRunning
 
     public init(
         concurrency: Int = 5,
-        subAgentFactory: @escaping @Sendable () -> SubAgentExecutor
+        subAgentFactory: @escaping @Sendable () -> any SubAgentRunning
     ) {
         self.concurrency = max(1, concurrency)
         self.subAgentFactory = subAgentFactory
@@ -126,11 +125,11 @@ private func runOne<Item: Sendable>(
     index: Int,
     item: Item,
     prompt: String,
-    factory: @Sendable () -> SubAgentExecutor
+    factory: @Sendable () -> any SubAgentRunning
 ) async -> BatchResult<Item> {
     let executor = factory()
     do {
-        let output = try await executor.run(initialMessage: prompt)
+        let output = try await executor.run(initialMessage: prompt, eventHandler: nil)
         return BatchResult(item: item, index: index, output: output, isError: false)
     } catch {
         return BatchResult(

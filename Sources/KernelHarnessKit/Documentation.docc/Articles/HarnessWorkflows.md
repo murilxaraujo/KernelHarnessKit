@@ -1,3 +1,5 @@
+import FoundationModels
+
 #  Harness
 
 Deterministic, phase-based workflows.
@@ -81,11 +83,10 @@ Workflow events are stable and streamed in order: ``AgentEvent/harnessPhaseStart
 let engine = HarnessEngine(
     definition: definition,
     context: HarnessContext(
-        harnessModel: provider,
+        model: SystemLanguageModel.default,
         toolRegistry: registry,
         permissionChecker: DefaultPermissionChecker(mode: .auto),
-        workspace: InMemoryWorkspace(),
-        model: "openai/gpt-4o-mini"
+        workspace: InMemoryWorkspace()
     )
 )
 

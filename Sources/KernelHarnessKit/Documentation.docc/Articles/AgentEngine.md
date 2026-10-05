@@ -4,27 +4,20 @@ How the engine runs a turn, dispatches tools, and streams events.
 
 ## Overview
 
-The agent loop is the heartbeat of every autonomous session. It's a
-`while turnCount < maxTurns` state machine around a provider stream:
+The agent loop creates a Foundation Models `LanguageModelSession` and streams
+its response. Apple owns transcript updates and the model/tool loop; the
+harness projects results into its transport events:
 
-1. Stream a completion from the ``LLMProvider``.
-2. On ``StreamChunk/messageComplete(_:_:)``, append the assistant message
-   to the conversation buffer and emit ``AgentEvent/turnComplete(_:_:)``.
-3. If the assistant requested tool calls, dispatch them — single calls
-   sequentially, multiple calls concurrently via `TaskGroup`.
-4. Append a single `tool`-role message carrying every result and loop.
-5. When the model returns no tool calls, the loop exits cleanly.
+1. Seed a `LanguageModelSession` with the conversation transcript.
+2. Stream Foundation Models snapshots and project them to
+   ``AgentEvent/textChunk(_:)`` and ``AgentEvent/turnComplete(_:_:)``.
+3. Apple invokes registered `FoundationModels.Tool` adapters and maintains
+   tool-call and tool-output transcript entries.
 
 ### Why single-vs-concurrent dispatch?
 
-When the model issues *one* tool call, executing it inline keeps event
-ordering deterministic — the UI sees `start → result → next turn`.
-
-When the model issues *multiple* calls in a single turn, the engine fans
-them out via `TaskGroup` and gathers the results in input order. Parallel
-dispatch avoids leaving unanswered `tool_use` blocks — the Anthropic API
-rejects the next request if any `tool_use` lacks a matching `tool_result`,
-so we must deliver all answers before the next turn.
+Foundation Models may invoke tools concurrently. The adapter applies the
+permission policy for every invocation before executing a harness tool.
 
 ### Turn budget
 
@@ -41,7 +34,7 @@ the conversation.
 ### Permission gating
 
 Every tool invocation is checked by the session's ``PermissionChecker``
-before ``Tool/execute(_:context:)`` is called. Decisions are categorized as
+before the registered ``HarnessTool/execute(_:context:)`` implementation is called. Decisions are categorized as
 ``PermissionCategory/allowed``, ``PermissionCategory/approvalRequired``, or
 ``PermissionCategory/denied``. ``DefaultPermissionChecker`` supports `auto`,
 `readOnly`, `approvalRequired`, and `custom` modes; `custom` mode can apply

@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 
 /// A small JSON Schema representation used for describing tool inputs and
 /// structured-output response formats.
@@ -122,6 +123,51 @@ public struct JSONSchema: Sendable, Hashable, Codable {
 
         public func encode(to encoder: Encoder) throws {
             try value.encode(to: encoder)
+        }
+    }
+}
+
+extension JSONSchema {
+    /// Convert the supported JSON Schema subset to Apple's runtime generation
+    /// schema. Provider/runtime-specific wire schemas should not be used for
+    /// application result validation.
+    public func foundationGenerationSchema(name: String = "GeneratedValue") throws -> GenerationSchema {
+        try GenerationSchema(root: dynamicGenerationSchema(name: name), dependencies: [])
+    }
+
+    func dynamicGenerationSchema(name: String) -> DynamicGenerationSchema {
+        if let choices = enumValues?.compactMap(\.stringValue), !choices.isEmpty {
+            return DynamicGenerationSchema(name: name, description: description, anyOf: choices)
+        }
+        switch type {
+        case .string:
+            return DynamicGenerationSchema(type: String.self)
+        case .integer:
+            return DynamicGenerationSchema(type: Int.self)
+        case .number:
+            return DynamicGenerationSchema(type: Double.self)
+        case .boolean:
+            return DynamicGenerationSchema(type: Bool.self)
+        case .array:
+            return DynamicGenerationSchema(
+                arrayOf: (items?.value ?? .any).dynamicGenerationSchema(name: "\(name)Item"),
+                minimumElements: minItems,
+                maximumElements: maxItems
+            )
+        case .object, .none:
+            let requiredProperties = Set(required ?? [])
+            let fields = (properties ?? [:]).keys.sorted().compactMap { key -> DynamicGenerationSchema.Property? in
+                guard let schema = properties?[key] else { return nil }
+                return DynamicGenerationSchema.Property(
+                    name: key,
+                    description: schema.description,
+                    schema: schema.dynamicGenerationSchema(name: "\(name)_\(key)"),
+                    isOptional: !requiredProperties.contains(key)
+                )
+            }
+            return DynamicGenerationSchema(name: name, description: description, properties: fields)
+        case .null:
+            return .null
         }
     }
 }

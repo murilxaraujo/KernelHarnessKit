@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 
 /// Context passed into phase execution closures.
 public struct PhaseContext: Sendable {
@@ -121,14 +122,9 @@ public enum PhaseExecution: Sendable {
     /// the phase's summary.
     case programmatic(@Sendable (PhaseContext) async throws -> String)
 
-    /// A single LLM call. `promptBuilder` produces the user prompt; the
-    /// phase's ``PhaseDefinition/systemPrompt`` is used as the system
-    /// message. If `responseFormat` is set, the engine requests that format
-    /// from the provider.
-    case llmSingle(
-        promptBuilder: @Sendable (PhaseContext) async throws -> String,
-        responseFormat: ResponseFormat?
-    )
+    /// A single Foundation Models response. `promptBuilder` produces the user
+    /// prompt; the phase's `systemPrompt` becomes session instructions.
+    case llmSingle(promptBuilder: @Sendable (PhaseContext) async throws -> String)
 
     /// A multi-round agent loop. `promptBuilder` produces the initial user
     /// prompt; `maxTurns` caps the loop.

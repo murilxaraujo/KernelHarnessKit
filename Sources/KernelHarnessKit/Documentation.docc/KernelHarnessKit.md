@@ -1,22 +1,20 @@
 #  ``KernelHarnessKit``
 
-Swift infrastructure for custom AI agent harnesses — agent loop, tool system,
-multi-agent coordination, deterministic workflow engine, LLM provider
-abstraction, workspace, and streaming — so you define *what* your agents do
-without rebuilding *how* they execute.
+Swift infrastructure for custom Apple Foundation Models harnesses — native
+model sessions and tool calling, multi-agent coordination, deterministic
+workflow engine, workspace, permissions, persistence, and streaming.
 
 ## Overview
 
-KernelHarnessKit is the orchestration layer between the LLM and your domain.
-It does not wrap HTTP calls to OpenAI or Anthropic; it consumes them through
-a provider protocol. It is not a chat UI framework; it is headless — emit
-events, build the UI yourself.
+KernelHarnessKit uses Apple's Foundation Models session and tool abstractions
+for generation. It is not a chat UI framework; it is headless — emit events,
+build the UI yourself.
 
 The framework makes two complementary execution strategies first-class:
 
 - **Autonomous agents (soft harness)** — ``runAgent(context:initialMessages:)``
-  runs a while-loop: the model drives, you curate the tools, the engine
-  dispatches calls. Best when the LLM should make its own decisions.
+  runs a `LanguageModelSession`: Apple manages conversation history and tool
+  execution while KernelHarnessKit supplies permission-aware tools.
 - **Deterministic phase machines (hard harness)** — ``HarnessEngine`` runs a
   pre-authored sequence of phases. The system controls flow; the LLM
   executes within each constrained phase. Best when domain workflows demand
@@ -26,17 +24,16 @@ The framework makes two complementary execution strategies first-class:
 
 ```swift
 import KernelHarnessKit
+import FoundationModels
 
 let registry = ToolRegistry()
 registry.registerBuiltIns()
 
-let provider = OpenAICompatibleProvider.openai(apiKey: apiKey)
 let context = QueryContext(
-    provider: provider,
+    model: SystemLanguageModel.default,
     toolRegistry: registry,
     permissionChecker: DefaultPermissionChecker(mode: .auto),
     workspace: InMemoryWorkspace(),
-    model: "openai/gpt-4o-mini",
     systemPrompt: "You are a helpful assistant."
 )
 
@@ -74,11 +71,10 @@ let definition = HarnessDefinition(
 let engine = HarnessEngine(
     definition: definition,
     context: HarnessContext(
-        provider: provider,
+        model: SystemLanguageModel.default,
         toolRegistry: registry,
         permissionChecker: DefaultPermissionChecker(mode: .auto),
         workspace: InMemoryWorkspace(),
-        model: "openai/gpt-4o-mini"
     )
 )
 
@@ -93,7 +89,7 @@ for try await event in engine.run() {
 
 - <doc:AgentEngine>
 - <doc:AuthoringTools>
-- <doc:LLMProviders>
+- <doc:FoundationModelsIntegration>
 - <doc:HarnessWorkflows>
 - <doc:EventStreaming>
 
@@ -126,14 +122,6 @@ for try await event in engine.run() {
 - ``ReadTodosTool``
 - ``TaskTool``
 - ``AskUserTool``
-
-### Providers
-
-- ``LLMProvider``
-- ``StreamChunk``
-- ``OpenAICompatibleProvider``
-- ``ProviderRegistry``
-- ``ResponseFormat``
 
 ### Coordination
 

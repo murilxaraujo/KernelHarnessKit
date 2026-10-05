@@ -1,25 +1,20 @@
 import Foundation
 import KernelHarnessKit
+import FoundationModels
 
 @main
 struct KBAgent {
     static func main() async throws {
         let prompt = Array(CommandLine.arguments.dropFirst()).joined(separator: " ")
-        guard let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] else {
-            fputs("set OPENAI_API_KEY\n", stderr)
-            return
-        }
-
         let registry = ToolRegistry()
         registry.registerBuiltIns()
         registry.register(KBSearchTool())
 
         let context = QueryContext(
-            provider: OpenAICompatibleProvider.openai(apiKey: key),
+            model: SystemLanguageModel.default,
             toolRegistry: registry,
             permissionChecker: DefaultPermissionChecker(mode: .auto),
             workspace: InMemoryWorkspace(),
-            model: "openai/gpt-4o-mini",
             systemPrompt: "You are a KB agent. Call kb_search before answering."
         )
 

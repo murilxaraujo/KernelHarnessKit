@@ -1,8 +1,8 @@
-#if os(macOS) || os(Linux)
+#if os(macOS)
 import Foundation
 
 /// Tool: `shell` — run a shell command in the workspace root.
-public struct ShellTool: Tool {
+public struct ShellTool: HarnessTool {
     public let name = "shell"
     public let description = "Run a shell command in the workspace root and return stdout, stderr, exit code, and duration."
 

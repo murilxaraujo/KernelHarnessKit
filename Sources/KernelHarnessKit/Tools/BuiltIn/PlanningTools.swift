@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tool: `write_todos` — atomically replace the agent's plan.
-public struct WriteTodosTool: Tool {
+public struct WriteTodosTool: HarnessTool {
     public let name = "write_todos"
     public let description = """
     Replace the agent's full todo list. Use this to plan multi-step work, \
@@ -45,7 +45,7 @@ public struct WriteTodosTool: Tool {
 }
 
 /// Tool: `read_todos` — read the current plan.
-public struct ReadTodosTool: Tool {
+public struct ReadTodosTool: HarnessTool {
     public let name = "read_todos"
     public let description = "Read the current todo list."
 

@@ -1,6 +1,6 @@
 import KernelHarnessKit
 
-struct KBSearchTool: Tool {
+struct KBSearchTool: HarnessTool {
     let name = "kb_search"
     let description = "Search the local knowledge base for relevant passages."
 

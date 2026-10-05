@@ -1,8 +1,8 @@
-#if os(macOS) || os(Linux)
+#if os(macOS)
 import Foundation
 
 /// Tool: `git_status` — inspect repository working tree status.
-public struct GitStatusTool: Tool {
+public struct GitStatusTool: HarnessTool {
     public let name = "git_status"
     public let description = "Show git branch and working tree status for the workspace repository."
 
@@ -25,7 +25,7 @@ public struct GitStatusTool: Tool {
 }
 
 /// Tool: `git_diff` — inspect unstaged/staged changes.
-public struct GitDiffTool: Tool {
+public struct GitDiffTool: HarnessTool {
     public let name = "git_diff"
     public let description = "Show git diff for the workspace repository. Optionally include staged changes or limit to a path."
 
@@ -64,7 +64,7 @@ public struct GitDiffTool: Tool {
 }
 
 /// Tool: `git_log` — inspect recent commit history.
-public struct GitLogTool: Tool {
+public struct GitLogTool: HarnessTool {
     public let name = "git_log"
     public let description = "Show recent git commits for the workspace repository."
 

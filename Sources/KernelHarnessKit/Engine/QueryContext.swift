@@ -1,12 +1,13 @@
 import Foundation
+import FoundationModels
 
 /// Shared context for a single query run.
 ///
 /// Built by the consumer from a model facade, a tool registry, a workspace, and
 /// tuning knobs. Passed into ``runAgent(context:initialMessages:)``.
 public struct QueryContext: Sendable {
-    /// Model facade used by the agent loop.
-    public let harnessModel: any HarnessModel
+    /// Foundation Models language model used by this query.
+    public let model: any LanguageModel
 
     /// Tools the agent can invoke.
     public let toolRegistry: ToolRegistry
@@ -17,25 +18,13 @@ public struct QueryContext: Sendable {
     /// Workspace for file I/O.
     public let workspace: any WorkspaceProvider
 
-    /// Model identifier. FoundationModels-backed adapters may ignore this;
-    /// server-backed adapters can use it to select a concrete model.
-    public let model: String
-
     /// System prompt.
     public let systemPrompt: String
-
-    /// Maximum tokens in a single model response.
-    public let maxTokens: Int
 
     /// Turn budget. The loop aborts with ``AgentError/maxTurnsExceeded(_:)``
     /// if reached. The HLD default (matching OpenHarness) is 200.
     public let maxTurns: Int
-
-    /// Sampling temperature. `nil` uses the model default.
-    public let temperature: Double?
-
-    /// Response format requested from the model.
-    public let responseFormat: ResponseFormat?
+    public let maximumToolCalls: Int
 
     /// Cross-turn metadata propagated into every ``ToolExecutionContext``.
     public let toolMetadata: [String: JSONValue]
@@ -53,36 +42,35 @@ public struct QueryContext: Sendable {
     public let askUserHandler: (any AskUserHandler)?
 
     public init(
-        harnessModel: any HarnessModel,
+        model: any LanguageModel = SystemLanguageModel.default,
         toolRegistry: ToolRegistry,
         permissionChecker: any PermissionChecker,
         workspace: any WorkspaceProvider,
-        model: String = "",
-        systemPrompt: String,
-        maxTokens: Int = 4096,
+        systemPrompt: String = "",
         maxTurns: Int = 200,
-        temperature: Double? = nil,
-        responseFormat: ResponseFormat? = nil,
+        maximumToolCalls: Int? = nil,
+        generationOptions: GenerationOptions = .init(),
         toolMetadata: [String: JSONValue] = [:],
         todoManager: TodoManager? = nil,
         subAgentFactory: (@Sendable () -> SubAgentExecutor)? = nil,
         askUserHandler: (any AskUserHandler)? = nil
     ) {
-        self.harnessModel = harnessModel
+        self.model = model
         self.toolRegistry = toolRegistry
         self.permissionChecker = permissionChecker
         self.workspace = workspace
-        self.model = model
         self.systemPrompt = systemPrompt
-        self.maxTokens = maxTokens
         self.maxTurns = maxTurns
-        self.temperature = temperature
-        self.responseFormat = responseFormat
+        self.maximumToolCalls = maximumToolCalls ?? maxTurns
+        self.generationOptions = generationOptions
         self.toolMetadata = toolMetadata
         self.todoManager = todoManager
         self.subAgentFactory = subAgentFactory
         self.askUserHandler = askUserHandler
     }
+
+    /// Generation parameters forwarded to Foundation Models.
+    public let generationOptions: GenerationOptions
 
     /// Build a ``ToolExecutionContext`` for this query.
     public func makeToolContext() -> ToolExecutionContext {

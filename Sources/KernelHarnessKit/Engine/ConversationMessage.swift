@@ -18,8 +18,8 @@ public enum Role: String, Codable, Sendable, Hashable {
 /// A single piece of message content.
 ///
 /// A message can interleave text, images, tool invocations, and tool results.
-/// This mirrors the Anthropic/OpenAI content-block model and is translated by
-/// ``LLMProvider`` implementations into the vendor's native shape.
+/// This portable event/persistence representation is projected from and to
+/// Foundation Models transcripts at the harness boundary.
 public enum ContentBlock: Sendable, Hashable {
     /// A text chunk.
     case text(String)
@@ -103,8 +103,8 @@ extension ContentBlock: Codable {
 
 /// A single message in a conversation.
 ///
-/// ``ConversationMessage`` is the uniform message shape consumed by
-/// ``LLMProvider`` implementations and produced by the agent loop.
+/// ``ConversationMessage`` is the transport-friendly message projection
+/// produced by the agent loop.
 public struct ConversationMessage: Codable, Sendable, Hashable {
     /// The author role.
     public let role: Role

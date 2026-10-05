@@ -1,12 +1,13 @@
 import Foundation
+import FoundationModels
 
 /// Configuration for a sub-agent.
 public struct SubAgentConfig: Sendable {
     /// System prompt for the sub-agent.
     public let systemPrompt: String
 
-    /// Model identifier passed to the harness model when applicable.
-    public let model: String
+    /// Model for this isolated session.
+    public let model: any LanguageModel
 
     /// Maximum tokens in a single LLM response.
     public let maxTokens: Int
@@ -16,7 +17,7 @@ public struct SubAgentConfig: Sendable {
 
     public init(
         systemPrompt: String,
-        model: String,
+        model: any LanguageModel = SystemLanguageModel.default,
         maxTokens: Int = 4096,
         maxTurns: Int = 15
     ) {
@@ -33,25 +34,39 @@ public struct SubAgentConfig: Sendable {
 /// Sub-agents share the parent session's ``WorkspaceProvider`` so they can
 /// read inputs and produce outputs through files, but their conversation
 /// history is fresh — the parent's turns are not visible.
-public struct SubAgentExecutor: Sendable {
+public protocol SubAgentRunning: Sendable {
+    func run(
+        initialMessage: String,
+        eventHandler: (@Sendable (AgentEvent) async -> Void)?
+    ) async throws -> String
+}
+
+public struct SubAgentExecutor: SubAgentRunning, Sendable {
     public let workspace: any WorkspaceProvider
     public let toolRegistry: ToolRegistry
-    public let harnessModel: any HarnessModel
+    public let model: any LanguageModel
     public let permissionChecker: any PermissionChecker
     public let config: SubAgentConfig
+    public let maximumToolCalls: Int?
+
+    public func run(initialMessage: String) async throws -> String {
+        try await run(initialMessage: initialMessage, eventHandler: nil)
+    }
 
     public init(
         workspace: any WorkspaceProvider,
         toolRegistry: ToolRegistry,
-        harnessModel: any HarnessModel,
+        model: any LanguageModel = SystemLanguageModel.default,
         permissionChecker: any PermissionChecker,
-        config: SubAgentConfig
+        config: SubAgentConfig,
+        maximumToolCalls: Int? = nil
     ) {
         self.workspace = workspace
         self.toolRegistry = toolRegistry
-        self.harnessModel = harnessModel
+        self.model = model
         self.permissionChecker = permissionChecker
         self.config = config
+        self.maximumToolCalls = maximumToolCalls
     }
 
     /// Run the sub-agent with an initial user message. Returns the final
@@ -66,14 +81,14 @@ public struct SubAgentExecutor: Sendable {
         let curated = toolRegistry.filtered(excluding: ["task", "write_todos", "read_todos"])
 
         let context = QueryContext(
-            harnessModel: harnessModel,
+            model: model,
             toolRegistry: curated,
             permissionChecker: permissionChecker,
             workspace: workspace,
-            model: config.model,
             systemPrompt: config.systemPrompt,
-            maxTokens: config.maxTokens,
-            maxTurns: config.maxTurns
+            maxTurns: config.maxTurns,
+            maximumToolCalls: maximumToolCalls,
+            generationOptions: GenerationOptions(maximumResponseTokens: config.maxTokens)
         )
 
         let result = runAgent(

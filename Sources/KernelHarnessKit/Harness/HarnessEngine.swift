@@ -1,9 +1,10 @@
 import Foundation
+import FoundationModels
 
 /// Configuration for a ``HarnessEngine`` run.
 public struct HarnessContext: Sendable {
-    /// Model facade used by LLM phases.
-    public let harnessModel: any HarnessModel
+    /// Foundation Models model used by LLM phases.
+    public let model: any LanguageModel
 
     /// The tool registry. Per-phase filtering happens internally.
     public let toolRegistry: ToolRegistry
@@ -14,36 +15,31 @@ public struct HarnessContext: Sendable {
     /// Workspace for phase I/O.
     public let workspace: any WorkspaceProvider
 
-    /// Model identifier.
-    public let model: String
-
     /// Ask-user handler for `llmHumanInput` phases.
     public let askUserHandler: (any AskUserHandler)?
 
     /// Metadata propagated into every ``PhaseContext``.
     public let metadata: [String: JSONValue]
 
-    /// Default max tokens for LLM phases that don't override.
-    public let defaultMaxTokens: Int
+    /// Default generation options for LLM phases that don't override.
+    public let generationOptions: GenerationOptions
 
     public init(
-        harnessModel: any HarnessModel,
+        model: any LanguageModel = SystemLanguageModel.default,
         toolRegistry: ToolRegistry,
         permissionChecker: any PermissionChecker,
         workspace: any WorkspaceProvider,
-        model: String = "",
         askUserHandler: (any AskUserHandler)? = nil,
         metadata: [String: JSONValue] = [:],
-        defaultMaxTokens: Int = 4096
+        generationOptions: GenerationOptions = .init()
     ) {
-        self.harnessModel = harnessModel
+        self.model = model
         self.toolRegistry = toolRegistry
         self.permissionChecker = permissionChecker
         self.workspace = workspace
-        self.model = model
         self.askUserHandler = askUserHandler
         self.metadata = metadata
-        self.defaultMaxTokens = defaultMaxTokens
+        self.generationOptions = generationOptions
     }
 }
 
@@ -188,12 +184,11 @@ public actor HarnessEngine {
             case .programmatic(let body):
                 return try await body(phaseContext)
 
-            case .llmSingle(let promptBuilder, let responseFormat):
+            case .llmSingle(let promptBuilder):
                 let prompt = try await promptBuilder(phaseContext)
                 return try await self.runSingleLLM(
                     phase: phase,
-                    prompt: prompt,
-                    responseFormat: responseFormat
+                    prompt: prompt
                 )
 
             case .llmAgent(let promptBuilder, let maxTurns):
@@ -259,21 +254,21 @@ public actor HarnessEngine {
 
     private func runSingleLLM(
         phase: PhaseDefinition,
-        prompt: String,
-        responseFormat: ResponseFormat?
+        prompt: String
     ) async throws -> String {
         let curated = context.toolRegistry.filtered(allowing: phase.tools)
         let query = QueryContext(
-            harnessModel: context.harnessModel,
+            model: context.model,
             toolRegistry: curated,
             permissionChecker: context.permissionChecker,
             workspace: context.workspace,
-            model: context.model,
             systemPrompt: phase.systemPrompt,
-            maxTokens: phase.maxTokens ?? context.defaultMaxTokens,
             maxTurns: 3,
-            temperature: phase.temperature,
-            responseFormat: responseFormat
+            maximumToolCalls: 3,
+            generationOptions: GenerationOptions(
+                temperature: phase.temperature ?? context.generationOptions.temperature,
+                maximumResponseTokens: phase.maxTokens ?? context.generationOptions.maximumResponseTokens
+            )
         )
         let result = runAgent(
             context: query,
@@ -297,14 +292,15 @@ public actor HarnessEngine {
         let executor = SubAgentExecutor(
             workspace: context.workspace,
             toolRegistry: curated,
-            harnessModel: context.harnessModel,
+            model: context.model,
             permissionChecker: context.permissionChecker,
             config: SubAgentConfig(
                 systemPrompt: phase.systemPrompt,
                 model: context.model,
-                maxTokens: phase.maxTokens ?? context.defaultMaxTokens,
+                maxTokens: phase.maxTokens ?? context.generationOptions.maximumResponseTokens ?? 4096,
                 maxTurns: maxTurns
-            )
+            ),
+            maximumToolCalls: maxTurns
         )
         return try await executor.run(initialMessage: prompt)
     }
@@ -320,24 +316,24 @@ public actor HarnessEngine {
     ) async throws -> String {
         let curated = context.toolRegistry.filtered(allowing: phase.tools)
         let systemPrompt = phase.systemPrompt
-        let harnessModel = context.harnessModel
+        let model = context.model
         let permissionChecker = context.permissionChecker
         let workspace = context.workspace
-        let model = context.model
-        let maxTokens = phase.maxTokens ?? context.defaultMaxTokens
+        let maxTokens = phase.maxTokens ?? context.generationOptions.maximumResponseTokens ?? 4096
 
         let batch = BatchExecutor(concurrency: concurrency) {
             SubAgentExecutor(
                 workspace: workspace,
                 toolRegistry: curated,
-                harnessModel: harnessModel,
+                model: model,
                 permissionChecker: permissionChecker,
                 config: SubAgentConfig(
                     systemPrompt: systemPrompt,
                     model: model,
                     maxTokens: maxTokens,
                     maxTurns: maxTurnsPerItem
-                )
+                ),
+                maximumToolCalls: maxTurnsPerItem
             )
         }
 

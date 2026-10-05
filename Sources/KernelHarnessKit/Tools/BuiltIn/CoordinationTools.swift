@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tool: `task` — delegate to a sub-agent with an isolated conversation.
-public struct TaskTool: Tool {
+public struct TaskTool: HarnessTool {
     public let name = "task"
     public let description = """
     Delegate a focused task to a sub-agent. The sub-agent starts fresh — \
@@ -43,7 +43,7 @@ public struct TaskTool: Tool {
 }
 
 /// Tool: `ask_user` — pause the run until the user responds.
-public struct AskUserTool: Tool {
+public struct AskUserTool: HarnessTool {
     public let name = "ask_user"
     public let description = """
     Ask the user a clarifying question and wait for their answer. Use \

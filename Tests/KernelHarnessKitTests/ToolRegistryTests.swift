@@ -41,17 +41,6 @@ struct ToolRegistryTests {
         #expect(filtered.contains("task") == false)
     }
 
-    @Test func apiSchemaShape() {
-        let registry = ToolRegistry()
-        registry.register(ReadFileTool())
-        let schemas = registry.apiSchema()
-        #expect(schemas.count == 1)
-        let fn = schemas[0]["function"] as? [String: Any]
-        #expect(fn?["name"] as? String == "read_file")
-        #expect(fn?["description"] as? String != nil)
-        #expect(fn?["parameters"] as? [String: Any] != nil)
-    }
-
     @Test func metadataIncludesPermissionsAndSchemas() {
         let registry = ToolRegistry()
         registry.register(ReadFileTool())

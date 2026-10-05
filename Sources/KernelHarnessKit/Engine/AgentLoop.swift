@@ -1,61 +1,74 @@
 import Foundation
+import FoundationModels
 
-/// The result of ``runAgent(context:initialMessages:)`` — an event stream
-/// plus a snapshot closure that returns the final message history once the
-/// stream has finished.
-///
-/// Typical usage:
-///
-/// ```swift
-/// let result = runAgent(context: context, initialMessages: [
-///     ConversationMessage(role: .user, text: "hello")
-/// ])
-/// for try await event in result.events {
-///     // surface event to the transport
-/// }
-/// let updated = await result.finalMessages()
-/// ```
+/// Result of a model-backed agent run.
 public struct AgentRunResult: Sendable {
-    /// Every event emitted by the loop — text deltas, tool lifecycle, turn
-    /// completion, errors.
     public let events: AsyncThrowingStream<AgentEvent, Error>
-
-    /// Snapshot the final conversation history.
-    ///
-    /// Safe to call mid-stream; returns the buffer's current contents. Most
-    /// consumers invoke it after draining ``events``.
     public let finalMessages: @Sendable () async -> [ConversationMessage]
 }
 
-/// Run the agent loop.
-///
-/// The loop is a state machine:
-///
-/// 1. Ask the provider to stream a completion.
-/// 2. When `.messageComplete` arrives, append the assistant message to the
-///    running buffer and emit ``AgentEvent/turnComplete(_:_:)``.
-/// 3. If the message contains tool calls, run them — one at a time for
-///    simpler event ordering, or concurrently via `TaskGroup` when the turn
-///    contains multiple calls.
-/// 4. Append a single `tool`-role message carrying all results and loop.
-/// 5. When the model emits no tool calls, the run is complete.
-///
-/// Cancelling the outer `Task` propagates into the stream; the loop exits
-/// after the current turn finishes.
+/// Run a Foundation Models session, forwarding native response streaming and
+/// tool lifecycle into KernelHarnessKit's transport-neutral event stream.
 public func runAgent(
     context: QueryContext,
     initialMessages: [ConversationMessage]
 ) -> AgentRunResult {
     let buffer = MessageBuffer(messages: initialMessages)
-
     let stream = AsyncThrowingStream<AgentEvent, Error> { continuation in
+        let executionContext = ToolExecutionContext(
+            workspace: context.workspace,
+            permissionChecker: context.permissionChecker,
+            metadata: context.toolMetadata,
+            todoManager: context.todoManager,
+            subAgentFactory: context.subAgentFactory,
+            askUserHandler: context.askUserHandler
+        )
+        let tools = context.toolRegistry.foundationTools(
+            context: executionContext,
+            maximumCalls: context.maximumToolCalls
+        ) { event in
+            continuation.yield(event)
+        }
+        let session = LanguageModelSession(
+            model: context.model,
+            tools: tools,
+            instructions: context.systemPrompt
+        )
+        let latestUserIndex = initialMessages.lastIndex(where: { $0.role == .user })
+        let transcriptHistory = latestUserIndex.map { Array(initialMessages[..<$0]) } ?? initialMessages
+        var transcript = session.transcript
+        transcript.append(contentsOf: makeTranscript(from: transcriptHistory))
+        session.transcript = transcript
         let task = Task {
             do {
-                try await runAgentLoop(
-                    context: context,
-                    buffer: buffer,
-                    continuation: continuation
+                guard let prompt = initialMessages.last(where: { $0.role == .user })?.plainText else {
+                    continuation.finish()
+                    return
+                }
+                let responseStream = session.streamResponse(
+                    to: prompt,
+                    options: context.generationOptions
                 )
+                var previous = ""
+                var latest = ""
+                var latestUsage = UsageSnapshot()
+                for try await snapshot in responseStream {
+                    latest = snapshot.content
+                    if latest.hasPrefix(previous) {
+                        let delta = String(latest.dropFirst(previous.count))
+                        if !delta.isEmpty { continuation.yield(.textChunk(delta)) }
+                    } else if !latest.isEmpty {
+                        continuation.yield(.textChunk(latest))
+                    }
+                    previous = latest
+                    latestUsage = UsageSnapshot(
+                        promptTokens: snapshot.usage.input.totalTokenCount,
+                        completionTokens: snapshot.usage.output.totalTokenCount
+                    )
+                }
+                let assistant = ConversationMessage(role: .assistant, text: latest)
+                await buffer.append(assistant)
+                continuation.yield(.turnComplete(assistant, latestUsage))
                 continuation.finish()
             } catch is CancellationError {
                 continuation.finish()
@@ -66,207 +79,31 @@ public func runAgent(
         }
         continuation.onTermination = { _ in task.cancel() }
     }
-
     return AgentRunResult(
         events: stream,
         finalMessages: { await buffer.snapshot() }
     )
 }
 
-/// Actor that holds the running message buffer so the loop and tool results
-/// can mutate a shared list safely.
+private func makeTranscript(
+    from messages: [ConversationMessage]
+) -> Transcript {
+    var entries: [Transcript.Entry] = []
+    for message in messages where message.role == .user || message.role == .assistant {
+        let segments: [Transcript.Segment] = [.text(.init(content: message.plainText))]
+        if message.role == .user {
+            entries.append(.prompt(Transcript.Prompt(segments: segments)))
+        } else {
+            entries.append(.response(Transcript.Response(segments: segments)))
+        }
+    }
+    return Transcript(entries: entries)
+}
+
 actor MessageBuffer {
     private(set) var messages: [ConversationMessage]
 
-    init(messages: [ConversationMessage]) {
-        self.messages = messages
-    }
-
-    func append(_ message: ConversationMessage) {
-        messages.append(message)
-    }
-
+    init(messages: [ConversationMessage]) { self.messages = messages }
+    func append(_ message: ConversationMessage) { messages.append(message) }
     func snapshot() -> [ConversationMessage] { messages }
 }
-
-// MARK: - Loop body
-
-private func runAgentLoop(
-    context: QueryContext,
-    buffer: MessageBuffer,
-    continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-) async throws {
-    var turnCount = 0
-    while turnCount < context.maxTurns {
-        try Task.checkCancellation()
-        turnCount += 1
-
-        let snapshot = await buffer.snapshot()
-        let stream = context.harnessModel.streamTurn(
-            messages: snapshot,
-            tools: context.toolRegistry.count == 0 ? nil : context.toolRegistry.apiSchema(),
-            options: HarnessGenerationOptions(
-                model: context.model,
-                systemPrompt: context.systemPrompt.isEmpty ? nil : context.systemPrompt,
-                responseFormat: context.responseFormat,
-                temperature: context.temperature,
-                maximumResponseTokens: context.maxTokens,
-                metadata: context.toolMetadata
-            )
-        )
-
-        var finalMessage: ConversationMessage?
-        var usage: UsageSnapshot?
-
-        for try await chunk in stream {
-            try Task.checkCancellation()
-            switch chunk {
-            case .textDelta(let text):
-                continuation.yield(.textChunk(text))
-            case .toolCallDelta:
-                // Tool call deltas are absorbed into the final message by
-                // the provider; they're streamed for progress UIs.
-                break
-            case .messageComplete(let message, let u):
-                finalMessage = message
-                usage = u
-            case .metadata:
-                break
-            case .retry(_, let delay, let reason):
-                continuation.yield(.status("retrying in \(delay)s: \(reason)"))
-            }
-        }
-
-        guard let assistantMessage = finalMessage else {
-            throw AgentError.noFinalMessage
-        }
-
-        await buffer.append(assistantMessage)
-        continuation.yield(.turnComplete(assistantMessage, usage))
-
-        let toolCalls = assistantMessage.toolUses
-        if toolCalls.isEmpty {
-            return
-        }
-
-        let toolContext = context.makeToolContext()
-        let resultBlocks: [ContentBlock]
-        if toolCalls.count == 1 {
-            let call = toolCalls[0]
-            resultBlocks = [
-                await executeSingleToolCall(
-                    call: call,
-                    toolContext: toolContext,
-                    registry: context.toolRegistry,
-                    continuation: continuation
-                )
-            ]
-        } else {
-            resultBlocks = try await executeParallelToolCalls(
-                calls: toolCalls,
-                toolContext: toolContext,
-                registry: context.toolRegistry,
-                continuation: continuation
-            )
-        }
-
-        await buffer.append(ConversationMessage(role: .tool, content: resultBlocks))
-    }
-
-    throw AgentError.maxTurnsExceeded(context.maxTurns)
-}
-
-private func executeSingleToolCall(
-    call: (id: String, name: String, input: [String: JSONValue]),
-    toolContext: ToolExecutionContext,
-    registry: ToolRegistry,
-    continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-) async -> ContentBlock {
-    continuation.yield(.toolExecutionStarted(callId: call.id, name: call.name, input: call.input))
-    let result = await runTool(call: call, toolContext: toolContext, registry: registry)
-    if result.error?.kind == .permissionDenied {
-        continuation.yield(.permissionDenied(
-            callId: call.id,
-            toolName: call.name,
-            reason: result.error?.message ?? result.output,
-            input: call.input
-        ))
-    }
-    continuation.yield(.toolExecutionCompleted(callId: call.id, name: call.name, result: result))
-    return .toolResult(toolUseId: call.id, content: result.output, isError: result.isError)
-}
-
-private func executeParallelToolCalls(
-    calls: [(id: String, name: String, input: [String: JSONValue])],
-    toolContext: ToolExecutionContext,
-    registry: ToolRegistry,
-    continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-) async throws -> [ContentBlock] {
-    for call in calls {
-        continuation.yield(.toolExecutionStarted(callId: call.id, name: call.name, input: call.input))
-    }
-
-    var ordered = [ContentBlock?](repeating: nil, count: calls.count)
-    try await withThrowingTaskGroup(of: (Int, String, ToolResult).self) { group in
-        for (index, call) in calls.enumerated() {
-            group.addTask {
-                let result = await runTool(call: call, toolContext: toolContext, registry: registry)
-                return (index, call.id, result)
-            }
-        }
-        for try await (index, toolUseId, result) in group {
-            if result.error?.kind == .permissionDenied {
-                continuation.yield(.permissionDenied(
-                    callId: toolUseId,
-                    toolName: calls[index].name,
-                    reason: result.error?.message ?? result.output,
-                    input: calls[index].input
-                ))
-            }
-            continuation.yield(.toolExecutionCompleted(
-                callId: toolUseId,
-                name: calls[index].name,
-                result: result
-            ))
-            ordered[index] = .toolResult(
-                toolUseId: toolUseId,
-                content: result.output,
-                isError: result.isError
-            )
-        }
-    }
-    return ordered.compactMap { $0 }
-}
-
-private func runTool(
-    call: (id: String, name: String, input: [String: JSONValue]),
-    toolContext: ToolExecutionContext,
-    registry: ToolRegistry
-) async -> ToolResult {
-    guard let tool = registry.get(call.name) else {
-        return .failure(
-            "unknown tool '\(call.name)'",
-            kind: .unknownTool,
-            details: ["tool": .string(call.name)]
-        )
-    }
-    let filePath = call.input["path"]?.stringValue
-    let command = call.input["command"]?.stringValue
-    let isReadOnly = tool.isReadOnly(rawInput: call.input)
-    let decision = toolContext.permissionChecker.evaluate(
-        toolName: call.name,
-        isReadOnly: isReadOnly,
-        filePath: filePath,
-        command: command
-    )
-    if !decision.allowed {
-        let reason = decision.reason ?? "invocation blocked by permission policy"
-        return .failure(
-            "permission denied: \(reason)",
-            kind: .permissionDenied,
-            details: ["tool": .string(call.name)]
-        )
-    }
-    return await tool.execute(rawInput: call.input, context: toolContext)
-}
-

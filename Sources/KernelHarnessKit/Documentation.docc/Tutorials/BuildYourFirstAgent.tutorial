@@ -50,7 +50,8 @@
 
     @Section(title: "Run the agent loop") {
         @ContentAndMedia {
-            Build a ``QueryContext`` with a provider, tools, workspace, and
+            Build a ``QueryContext`` with a Foundation Models language model,
+            tools, workspace, and
             permissions. Call ``runAgent(context:initialMessages:)`` and
             drain the resulting event stream.
         }
@@ -63,7 +64,7 @@
             }
 
             @Step {
-                Run it with `OPENAI_API_KEY=sk-… swift run kb-agent "who wrote Inquisitive Machines?"`.
+                Run it on an Apple platform that supports Foundation Models.
 
                 @Code(name: "main.swift", file: tutorial-step-5.swift)
             }

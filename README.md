@@ -2,12 +2,12 @@
 
 **Swift infrastructure for custom AI agent harnesses.**
 
-Harness model facade · Tool system · Multi-agent coordination · Deterministic workflow engine ·
-FoundationModels adapters · Workspace · Streaming — everything you need to ship a
+Foundation Models sessions and tools · Multi-agent coordination · Deterministic workflow engine ·
+Workspace · Permissions · Persistence · Streaming — everything you need to ship a
 custom agent service, minus the model heavy lifting Apple now provides.
 
-[![Swift 6.0+](https://img.shields.io/badge/swift-6.0+-orange.svg)](https://swift.org)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%2014%20%7C%20iOS%2017%20%7C%20Linux-blue)](#platforms)
+[![Swift 6.4+](https://img.shields.io/badge/swift-6.4+-orange.svg)](https://swift.org)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%2027%20%7C%20iOS%2027%20%7C%20watchOS%2027-blue)](#platforms)
 [![Docs](https://img.shields.io/badge/docs-DocC-blue.svg)](https://murilxaraujo.github.io/KernelHarnessKit/documentation/kernelharnesskit/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -17,12 +17,12 @@ custom agent service, minus the model heavy lifting Apple now provides.
 
 > *"The model is commoditized. Structured enforcement of process is the moat."*
 
-KernelHarnessKit now focuses on the harness layer around model execution:
+KernelHarnessKit focuses on the harness layer around model execution:
 workspace, permission gates, deterministic phases, tool curation, streaming,
-and multi-agent coordination. On Xcode 27, Apple's FoundationModels framework
-can run the optimized model stack — System Language Model, Private Cloud
-Compute, Core AI, MLX, or third-party `LanguageModel` packages — behind the
-same harness abstractions.
+and multi-agent coordination. Apple's Foundation Models framework supplies
+the model, session, transcript, structured generation, streaming, and tool
+calling abstractions. KernelHarnessKit builds orchestration and app policy on
+those APIs.
 
 KernelHarnessKit gives you two complementary execution strategies, so you can pick
 per-task:
@@ -45,13 +45,13 @@ reorder or skip.
 
 ```swift
 import KernelHarnessKit
-import KernelHarnessFoundationModels
+import FoundationModels
 
 let registry = ToolRegistry()
 registry.registerBuiltIns()
 
 let context = QueryContext(
-    harnessModel: AppleHarnessModels.system(),
+    model: SystemLanguageModel.default,
     toolRegistry: registry,
     permissionChecker: DefaultPermissionChecker(mode: .auto),
     workspace: InMemoryWorkspace(),
@@ -72,32 +72,17 @@ Full documentation lives at
 articles, tutorials, and API reference. Generate it locally with
 `swift package generate-documentation --target KernelHarnessKit`.
 
-## Run the demo
+## Foundation Models-first
 
-The package ships with a small CLI you can run against any OpenAI-compatible
-endpoint:
-
-```bash
-export OPENAI_API_KEY=sk-…
-swift run kernel-harness-demo chat "write a haiku about deterministic agents"
-swift run kernel-harness-demo harness
-```
-
-`harness` mode walks through a three-phase workflow: programmatic topic
-collection → parallel per-topic analysis via sub-agents → single-call
-summarization. Great for seeing every subsystem exercise at once.
-
-## FoundationModels-first
-
-On Apple platforms with Xcode 27, add the `KernelHarnessFoundationModels`
-product and pass any FoundationModels `LanguageModel` through the harness:
+Pass Apple's `SystemLanguageModel` or any provider package's Foundation Models
+`LanguageModel` directly:
 
 ```swift
-let local = AppleHarnessModels.system()
-let pcc = AppleHarnessModels.privateCloudCompute()
+let local = SystemLanguageModel.default
+let pcc = PrivateCloudComputeLanguageModel()
 
 let context = QueryContext(
-    harnessModel: pcc,
+    model: pcc,
     toolRegistry: registry,
     permissionChecker: permissions,
     workspace: workspace,
@@ -105,11 +90,9 @@ let context = QueryContext(
 )
 ```
 
-The core target does not import FoundationModels, so harness definitions,
-workspaces, permissions, persistence, MCP bridging, and Linux/server code stay
-portable. OpenAI-compatible provider code remains in-tree while the package is
-being re-centered, but new integrations should target `HarnessModel` instead
-of `LLMProvider`.
+The target minimum is the Foundation Models 27.0 platform generation. Provider
+packages that conform to Apple's `LanguageModel` protocol plug into the same
+native session API.
 
 ## Feature matrix
 
@@ -117,7 +100,7 @@ of `LLMProvider`.
 |---|---|
 | **Engine** | `AsyncThrowingStream` agent loop with parallel tool dispatch and turn budget. |
 | **Tools** | `Tool` protocol, type-erased `AnyTool`, lock-protected `ToolRegistry`, 8 built-in tools. |
-| **Models** | Cross-platform `HarnessModel` facade plus Apple FoundationModels adapter target. |
+| **Models** | Apple Foundation Models `LanguageModelSession` and native tool adapters. |
 | **Coordination** | `SubAgentExecutor`, `BatchExecutor` with concurrency control, `AskUserHandler`. |
 | **Harness** | `HarnessEngine` actor running 5 phase types with per-phase timeouts. |
 | **Workspace** | `WorkspaceProvider` protocol + `InMemoryWorkspace` (Postgres impl in companion target). |
@@ -128,15 +111,15 @@ of `LLMProvider`.
 
 ## Platforms
 
-- macOS 14+
-- iOS 17+, tvOS 17+, watchOS 10+
-- Linux (tested via Swift 6.0 Docker images)
+- macOS 27+
+- iOS 27+, watchOS 27+
 
-Tests run offline against a `MockLLMProvider`; no API keys required.
+Tests cover workflow, permission, workspace, and persistence behavior without
+requiring model credentials.
 
 ## Installation
 
-Add to your `Package.swift`:
+Add the package and `KernelHarnessKit` product to your `Package.swift`:
 
 ```swift
 dependencies: [
@@ -147,8 +130,6 @@ targets: [
         name: "YourApp",
         dependencies: [
             .product(name: "KernelHarnessKit", package: "KernelHarnessKit"),
-            // Optional: Postgres-backed repositories for server deployments
-            .product(name: "KernelHarnessPostgres", package: "KernelHarnessKit"),
         ]
     )
 ]

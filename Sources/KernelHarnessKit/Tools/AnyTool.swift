@@ -36,7 +36,7 @@ public struct AnyTool: Sendable {
     private let _isReadOnly: @Sendable ([String: JSONValue]) -> Bool
 
     /// Erase a concrete ``Tool`` into an ``AnyTool``.
-    public init<T: Tool>(_ tool: T) {
+    public init<T: HarnessTool>(_ tool: T) {
         self.name = tool.name
         self.description = tool.description
         self.inputSchema = T.inputSchema
@@ -94,28 +94,6 @@ public struct AnyTool: Sendable {
     /// Read-only check with raw JSON input.
     public func isReadOnly(rawInput: [String: JSONValue]) -> Bool {
         _isReadOnly(rawInput)
-    }
-
-    /// The tool advertised to the provider in the form OpenAI expects:
-    ///
-    /// ```json
-    /// { "type": "function",
-    ///   "function": {
-    ///     "name": "...",
-    ///     "description": "...",
-    ///     "parameters": { ...JSON Schema... }
-    ///   }
-    /// }
-    /// ```
-    public var apiSchema: [String: Any] {
-        [
-            "type": "function",
-            "function": [
-                "name": name,
-                "description": description,
-                "parameters": inputSchema.dictionary,
-            ],
-        ]
     }
 
     private static func decodeInput<I: Decodable>(

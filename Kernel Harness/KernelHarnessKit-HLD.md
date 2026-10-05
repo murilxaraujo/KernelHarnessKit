@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-KernelHarnessKit is a Swift framework for building and deploying custom AI agent harnesses. It provides the full agentic infrastructure — agent loop, tool system, multi-agent coordination, deterministic workflow engine, LLM provider abstraction, workspace management, and streaming — so that consumers define *what* their agents do (domain prompts, tools, harnesses) without rebuilding *how* agents execute.
+KernelHarnessKit is a Swift framework for building Apple Foundation Models harnesses. It provides orchestration infrastructure — native model-session integration, permission-aware tools, multi-agent coordination, deterministic workflow engine, workspace management, persistence, and streaming — so consumers define *what* their agents do without rebuilding *how* workflows execute.
 
 The first consumer is **nemesis-harness**, the "Assistente Jurídico" service for the Nemesis judicial analysis platform. The framework must be general enough to serve future clients while being concrete enough to ship Nemesis in weeks, not months.
 
@@ -22,7 +22,7 @@ From **OpenHarness** (HKUDS): the insight that an agent is decomposable into a s
 
 ### What This Is Not
 
-KernelHarnessKit is not an LLM SDK. It does not wrap HTTP calls to OpenAI or Anthropic — it consumes them through a provider protocol. It is not a chat UI framework. It is the orchestration layer between the LLM and the domain, between user intent and tool execution.
+KernelHarnessKit uses Apple's Foundation Models APIs directly and accepts any provider package that conforms to Apple's `LanguageModel`. It is not a chat UI framework. It is the orchestration layer between model sessions and domain workflows.
 
 ---
 
@@ -43,8 +43,8 @@ KernelHarnessKit is not an LLM SDK. It does not wrap HTTP calls to OpenAI or Ant
 │  │  Engine   │  │  Tools   │  │ Providers │  │    Streaming     │   │
 │  │          │  │          │  │           │  │                  │   │
 │  │ AgentLoop │  │ BaseTool │  │ LLMProv.  │  │ AgentEvent       │   │
-│  │ QueryCtx  │  │ ToolReg. │  │ OpenAI    │  │ EventEmitter     │   │
-│  │ MaxTurns  │  │ ToolExec.│  │ Anthropic │  │ SSEEncoder       │   │
+│  │ QueryCtx  │  │ ToolReg. │  │ FM Session│  │ EventEmitter     │   │
+│  │ MaxTurns  │  │ ToolExec.│  │ Transcript│  │ SSEEncoder       │   │
 │  └─────┬────┘  │ ToolRes. │  │ Google    │  └──────────────────┘   │
 │        │       └─────┬────┘  └─────┬─────┘                         │
 │        │             │             │                                │
@@ -98,11 +98,10 @@ The engine is the heartbeat: a `while` loop that calls the LLM, dispatches tool 
 ```swift
 /// Shared context for a single query run.
 public struct QueryContext: Sendable {
-    public let provider: any LLMProvider
+    public let model: any LanguageModel
     public let toolRegistry: ToolRegistry
     public let permissionChecker: PermissionChecker
     public let workspace: any WorkspaceProvider
-    public let model: String
     public let systemPrompt: String
     public let maxTokens: Int
     public let maxTurns: Int                        // default 200 (matches OpenHarness)
@@ -141,14 +140,9 @@ public func runQuery(
             while context.maxTurns == nil || turnCount < context.maxTurns {
                 turnCount += 1
 
-                // 1. Stream from LLM
-                let stream = context.provider.streamChat(
-                    model: context.model,
-                    messages: messages,
-                    systemPrompt: context.systemPrompt,
-                    tools: context.toolRegistry.toAPISchema(),
-                    maxTokens: context.maxTokens
-                )
+                // 1. Stream from the Foundation Models session. The session
+                // owns transcript state and native tool execution.
+                let stream = context.session.streamResponse(to: prompt)
 
                 var finalMessage: ConversationMessage?
                 var usage: UsageSnapshot?
@@ -228,7 +222,7 @@ public func runQuery(
 
 **Key design decisions:**
 
-- **Single vs. concurrent tool execution** mirrors OpenHarness: one tool runs sequentially for simpler event ordering; multiple tools run via `TaskGroup` to avoid leaving unanswered tool_use blocks (the Anthropic API rejects the next request if any tool_use lacks a matching tool_result).
+- Foundation Models owns tool-call scheduling and the transcript lifecycle; KernelHarnessKit applies its permission policy inside each tool adapter.
 - **Turn counting** with configurable `maxTurns` (default 200) prevents runaway loops.
 - **Reactive compaction** (context too long) can be added as a middleware concern — the engine emits a `contextTooLong` event and the consumer decides whether to compact or abort.
 
@@ -385,62 +379,18 @@ public struct MCPProxyTool: Sendable {
 }
 ```
 
-### 3.3 LLM Providers — The Model Layer
+### 3.3 Model execution — Apple Foundation Models
 
-The provider abstraction decouples the engine from any specific LLM vendor.
+KernelHarnessKit accepts a Foundation Models `LanguageModel` and creates a
+`LanguageModelSession` per agent run. The session owns the transcript, response
+streaming, generated tool arguments, and model-driven tool-call loop. System,
+Private Cloud Compute, and provider-package models use the same API surface.
 
-**Inspiration from OpenHarness:** `SupportsStreamingMessages` is a Protocol with a single method `stream_message() -> AsyncIterator[ApiStreamEvent]`. Three event types: `ApiTextDeltaEvent`, `ApiMessageCompleteEvent`, `ApiRetryEvent`. Clean, minimal. KernelHarnessKit mirrors this exactly.
-
-```swift
-/// Protocol that any LLM provider must satisfy.
-public protocol LLMProvider: Sendable {
-    func streamChat(
-        model: String,
-        messages: [ConversationMessage],
-        systemPrompt: String?,
-        tools: [[String: Any]]?,
-        responseFormat: ResponseFormat?,
-        temperature: Double?,
-        maxTokens: Int?
-    ) -> AsyncThrowingStream<StreamChunk, Error>
-}
-
-/// Events produced by the provider stream.
-public enum StreamChunk: Sendable {
-    case textDelta(String)
-    case messageComplete(ConversationMessage, UsageSnapshot)
-    case retry(attempt: Int, delay: TimeInterval, reason: String)
-}
-
-/// Token usage snapshot.
-public struct UsageSnapshot: Sendable {
-    public var promptTokens: Int = 0
-    public var completionTokens: Int = 0
-    public var totalTokens: Int { promptTokens + completionTokens }
-}
-```
-
-**Shipped providers:**
-
-| Provider | SDK | Notes |
-|----------|-----|-------|
-| `OpenAIProvider` | MacPaw/OpenAI | Primary, best tool-calling support |
-| `AnthropicProvider` | AsyncHTTPClient + Messages API | Native tool_use blocks, no vendor SDK needed |
-| `GoogleProvider` | AsyncHTTPClient + Gemini API | Function calling, no vendor SDK needed |
-
-**Runtime selection:**
-
-```swift
-public struct ProviderRegistry: Sendable {
-    private let providers: [String: any LLMProvider]
-
-    public func provider(for modelId: String) -> any LLMProvider {
-        // modelId format: "openai/gpt-4o", "anthropic/claude-sonnet-4-20250514"
-        let prefix = modelId.prefix(while: { $0 != "/" })
-        return providers[String(prefix)] ?? providers["openai"]!
-    }
-}
-```
+The harness layer remains responsible for selecting tools, supplying
+`ToolExecutionContext`, evaluating permissions, and projecting events into
+transport-facing `AgentEvent` values. Fixed structured output should use
+`@Generable`; runtime-defined output can use `DynamicGenerationSchema` and
+`GenerationSchema`.
 
 ### 3.4 Streaming — The Event Layer
 
@@ -541,7 +491,7 @@ The coordination layer enables an agent to spawn isolated sub-agents for paralle
 public struct SubAgentExecutor: Sendable {
     public let workspace: any WorkspaceProvider    // shared with parent
     public let toolRegistry: ToolRegistry          // curated (no task, no todos)
-    public let provider: any LLMProvider
+    public let model: any LanguageModel
     public let maxTurns: Int                       // default 15
 
     public func run(
@@ -763,7 +713,7 @@ public actor HarnessEngine {
             let agentLoop = SubAgentExecutor(
                 workspace: context.workspace,
                 toolRegistry: curatedTools,
-                provider: context.provider,
+                model: context.model,
                 maxTurns: 25
             )
             let result = try await agentLoop.run(
@@ -1052,12 +1002,7 @@ KernelHarnessKit/
 │   │   │       └── CoordinationTools.swift     # task, ask_user
 │   │   │
 │   │   ├── Providers/
-│   │   │   ├── LLMProvider.swift              # Protocol: streamChat()
-│   │   │   ├── StreamChunk.swift              # textDelta, messageComplete, retry
-│   │   │   ├── ProviderRegistry.swift         # Runtime selection by modelId
-│   │   │   ├── OpenAIProvider.swift           # MacPaw/OpenAI SDK
-│   │   │   ├── AnthropicProvider.swift        # HTTP + Messages API
-│   │   │   └── GoogleProvider.swift           # HTTP + Gemini API
+│   │   │   └── Foundation Models LanguageModel and LanguageModelSession
 │   │   │
 │   │   ├── Coordination/
 │   │   │   ├── SubAgentExecutor.swift         # Isolated sub-agent execution
@@ -1117,7 +1062,7 @@ KernelHarnessKit/
 │   │       ├── TokenUsageRecord.swift
 │   │       ├── JSONValue.swift                # Type-safe JSON enum (string, number, bool, array, object, null)
 │   │       ├── JSONSchema.swift               # JSON Schema type (object, properties, required, etc.)
-│   │       └── ResponseFormat.swift           # LLM response format (.text, .jsonObject, .jsonSchema(JSONSchema))
+│   │       └── FoundationModels Generable / GenerationSchema
 │   │
 │   └── KernelHarnessPostgres/                 # Optional: PostgresNIO implementations
 │       ├── PostgresThreadRepository.swift
@@ -1150,13 +1095,12 @@ import PackageDescription
 
 let package = Package(
     name: "KernelHarnessKit",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v27), .iOS(.v27), .watchOS(.v27)],
     products: [
         .library(name: "KernelHarnessKit", targets: ["KernelHarnessKit"]),
         .library(name: "KernelHarnessPostgres", targets: ["KernelHarnessPostgres"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/MacPaw/OpenAI.git", from: "0.4.0"),
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
@@ -1165,7 +1109,7 @@ let package = Package(
         .target(
             name: "KernelHarnessKit",
             dependencies: [
-                .product(name: "OpenAI", package: "OpenAI"),
+                .product(name: "FoundationModels", package: "FoundationModels"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
             ]
@@ -1194,13 +1138,8 @@ import KernelHarnessKit
 import KernelHarnessPostgres
 
 func configure(_ app: Application) throws {
-    // 1. Providers
-    let openai = OpenAIProvider(apiKey: Environment.get("OPENAI_API_KEY")!)
-    let anthropic = AnthropicProvider(apiKey: Environment.get("ANTHROPIC_API_KEY"))
-    let google = GoogleProvider(apiKey: Environment.get("GOOGLE_AI_API_KEY"))
-    let providers = ProviderRegistry(providers: [
-        "openai": openai, "anthropic": anthropic, "google": google
-    ])
+    // 1. Foundation Models
+    let model = SystemLanguageModel.default
 
     // 2. Tool Registry (built-in + MCP)
     let toolRegistry = ToolRegistry()
@@ -1229,7 +1168,7 @@ func configure(_ app: Application) throws {
 
     // 5. Wire into Vapor
     app.agentService = AgentService(
-        providers: providers,
+        model: model,
         toolRegistry: toolRegistry,
         harnessRegistry: harnessRegistry,
         repositories: repos
@@ -1245,11 +1184,11 @@ The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness d
 
 | Aspect | OpenHarness (Python) | KernelHarnessKit (Swift) |
 |--------|---------------------|--------------------------|
-| **Language** | Python 3.12+ | Swift 6.0+ |
+| **Language** | Python 3.12+ | Swift 6.4+ |
 | **Concurrency** | `asyncio.gather()`, subprocess spawning | `TaskGroup`, structured concurrency (in-process) |
 | **Tool abstraction** | `BaseTool` ABC + Pydantic `BaseModel` | `Tool` protocol + `Codable` |
 | **Schema generation** | Pydantic `model_json_schema()` | Codable reflection / macro |
-| **Provider abstraction** | `SupportsStreamingMessages` Protocol | `LLMProvider` protocol |
+| **Model abstraction** | Foundation Models `LanguageModel` | `LanguageModel` supplied by Apple or provider packages |
 | **Streaming events** | 7 frozen dataclasses in `StreamEvent` union | `AgentEvent` enum with associated values |
 | **Multi-agent** | Subprocess-based swarm (process isolation) | In-process `TaskGroup` (memory isolation via scope) |
 | **Deterministic workflows** | Not present | `HarnessEngine` phase state machine (5 phase types) |
@@ -1277,9 +1216,9 @@ The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness d
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Premature abstraction before second consumer | Over-engineered interfaces that don't fit real needs | Start protocol-heavy only where OpenHarness validates the pattern; keep Nemesis-specific code in nemesis-harness; refactor boundary when second consumer arrives |
-| Swift JSON Schema generation from Codable is non-trivial | Tool schemas may be incomplete or require manual definition | Start with manual `JSONSchema` definitions; add macro-based generation later; OpenAI SDK already handles schema for its tools |
+| Runtime-defined tool schemas may not map to statically generated tool arguments | Some remote MCP tools may not fit Foundation Models' typed `Tool` API | Adapt supported JSON Schema shapes with `DynamicGenerationSchema`; retain MCP bridge schemas for server-facing metadata |
 | Structured concurrency cancellation semantics | Sub-agent failures may cascade unexpectedly | Follow OpenHarness pattern: `return_exceptions=True` equivalent — catch errors per sub-agent and return as `ToolResult(isError: true)` |
-| LLM provider inconsistencies in tool calling | Different providers handle tools differently (OpenAI parallel, Anthropic sequential preference) | Abstract behind `LLMProvider` protocol; test each provider; document known quirks; set OpenAI as recommended default |
+| Provider package differences | External model packages may differ in capabilities and availability | Query Foundation Models capabilities and handle unsupported operations at the feature boundary |
 | Memory pressure from concurrent sub-agents | N simultaneous LLM contexts in-process | Configurable `BatchExecutor.concurrency` (default 5); back-pressure via TaskGroup slot limiting |
 | Framework coupling to Vapor | Limits consumers using Hummingbird or other Swift HTTP frameworks | Framework has zero Vapor dependency — only `KernelHarnessPostgres` uses PostgresNIO (which is framework-agnostic). SSE encoding is a pure function, not a Vapor response type. |
 
@@ -1293,7 +1232,7 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 - Engine: `AgentLoop`, `QueryContext`, `ConversationMessage`, turn limiting
 - Tools: `Tool` protocol, `ToolRegistry`, `AnyTool`, all 8 built-in tools
-- Providers: `LLMProvider` protocol, `OpenAIProvider` (primary), `AnthropicProvider`
+- Model runtime: Foundation Models `LanguageModel` and `LanguageModelSession`
 - Coordination: `SubAgentExecutor`, `BatchExecutor`, `AskUserHandler`
 - Harness: `HarnessEngine`, all 5 phase types, `HarnessRegistry`, gatekeeper/post-harness LLM
 - Workspace: `WorkspaceProvider` protocol, `InMemoryWorkspace`, `PostgresWorkspace`
@@ -1305,7 +1244,7 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 **Deferred (post-MVP):**
 
-- `GoogleProvider` (Nemesis launches with OpenAI + Anthropic)
+- Server-backed model implementations supplied by Foundation Models provider packages
 - `StdioMCPClient` (no stdio MCP servers in Nemesis deployment)
 - Hooks system (useful but not blocking for Nemesis)
 - Auto-compaction (context window management — start with simple truncation)
@@ -1318,9 +1257,9 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 | Week | Milestone | Deliverable |
 |------|-----------|-------------|
-| 1 | Foundation | SPM package scaffold, `LLMProvider` + `OpenAIProvider`, `ConversationMessage`, `AgentEvent` |
+| 1 | Foundation | SPM package scaffold, Foundation Models session integration, `ConversationMessage`, `AgentEvent` |
 | 1-2 | Engine | `AgentLoop`, `QueryContext`, `ToolRegistry`, `AnyTool`, built-in workspace + planning tools |
-| 2 | Providers | `AnthropicProvider`, `ProviderRegistry` |
+| 2 | Model integration | Foundation Models `LanguageModel` implementations and availability handling |
 | 2-3 | MCP | `MCPClient` protocol, `HTTPMCPClient`, `SSEMCPClient`, `MCPToolBridge` |
 | 3 | Coordination | `SubAgentExecutor`, `BatchExecutor`, `AskUserHandler`, `task` + `ask_user` tools |
 | 3-4 | Harness | `HarnessEngine`, all 5 phase types, `HarnessRegistry`, gatekeeper/post-harness |
@@ -1332,11 +1271,11 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 ## 10. Open Questions
 
-1. **JSON Schema generation strategy.** Swift lacks Pydantic's `model_json_schema()`. Options: (a) manual schema definitions per tool, (b) Swift macro that generates schema from Codable conformance, (c) runtime reflection via Mirror. Recommendation: start with (a), migrate to (b) when tool count grows.
+1. **Tool argument strategy.** Prefer Foundation Models `@Generable` types for statically defined tool arguments and `DynamicGenerationSchema` for runtime schemas such as MCP tool definitions.
 
 2. **Context window management.** OpenHarness has sophisticated auto-compaction (microcompact → full LLM summarization). For MVP, should KernelHarnessKit ship simple truncation (drop oldest messages) or invest in compaction? Recommendation: simple truncation for MVP, compaction as post-MVP enhancement.
 
-3. **Structured output enforcement.** For `llmSingle` phases, should the framework use OpenAI's `response_format: json_schema` or parse free-form output? Recommendation: use provider-native structured output where available, fall back to JSON extraction + Codable validation.
+3. **Structured output enforcement.** For `llmSingle` phases, use Foundation Models `@Generable` or `GenerationSchema`, then apply application-specific validation before writing phase output.
 
 4. **MCP SDK.** Should KernelHarnessKit depend on `swift-mcp-sdk` or implement the MCP client protocol from scratch? The official SDK may add unnecessary weight. Recommendation: implement a minimal MCP client (JSON-RPC 2.0 over HTTP/SSE) — the protocol is simple enough that a dependency isn't justified for the client side.
 
