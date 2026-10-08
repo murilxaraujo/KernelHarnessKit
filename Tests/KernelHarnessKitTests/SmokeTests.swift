@@ -3,5 +3,5 @@ import Testing
 
 @Test
 func packageExposesVersion() {
-    #expect(KHK.version == "0.1.0")
+    #expect(KHK.version == "0.3.0")
 }

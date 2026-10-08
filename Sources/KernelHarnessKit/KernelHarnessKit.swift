@@ -7,5 +7,5 @@ import Foundation
 /// `KernelHarnessKit.Thread` (vs Foundation's `Thread`) to disambiguate.
 public enum KHK {
     /// Semantic version of the framework.
-    public static let version = "0.1.0"
+    public static let version = "0.3.0"
 }

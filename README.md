@@ -99,15 +99,15 @@ native session API.
 | Subsystem | What it gives you |
 |---|---|
 | **Engine** | `AsyncThrowingStream` agent loop with parallel tool dispatch and turn budget. |
-| **Tools** | `Tool` protocol, type-erased `AnyTool`, lock-protected `ToolRegistry`, 8 built-in tools. |
+| **Tools** | `HarnessTool` protocol, type-erased `AnyTool`, lock-protected `ToolRegistry`, 14 built-in tools (10 on non-macOS platforms). |
 | **Models** | Apple Foundation Models `LanguageModelSession` and native tool adapters. |
 | **Coordination** | `SubAgentExecutor`, `BatchExecutor` with concurrency control, `AskUserHandler`. |
 | **Harness** | `HarnessEngine` actor running 5 phase types with per-phase timeouts. |
-| **Workspace** | `WorkspaceProvider` protocol + `InMemoryWorkspace` (Postgres impl in companion target). |
-| **Streaming** | `AgentEvent` enum covering 17 event types, `SSEEncoder` for HTTP transports. |
+| **Workspace** | `WorkspaceProvider` protocol with `InMemoryWorkspace` and `LocalFileWorkspace` implementations. |
+| **Streaming** | `AgentEvent` enum covering 18 event kinds, `SSEEncoder` for HTTP transports. |
 | **Permissions** | `default` / `auto` / `readOnly` / custom policy with glob-based path rules. |
 | **MCP** | JSON-RPC 2.0 over HTTP + SSE, `MCPToolBridge` to register server tools into a local `ToolRegistry`. |
-| **Persistence** | Protocol-based repositories with `PostgresNIO` implementations in `KernelHarnessPostgres`. |
+| **Persistence** | Protocol-based repositories for threads, messages, todos, harness runs, and token usage. |
 
 ## Platforms
 
@@ -123,7 +123,7 @@ Add the package and `KernelHarnessKit` product to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/murilxaraujo/KernelHarnessKit.git", from: "0.1.0"),
+    .package(url: "https://github.com/murilxaraujo/KernelHarnessKit.git", from: "0.3.0"),
 ],
 targets: [
     .target(
