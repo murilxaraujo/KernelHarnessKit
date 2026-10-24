@@ -138,8 +138,16 @@ targets: [
 ## Design
 
 See [the high-level design document](Kernel%20Harness/KernelHarnessKit-HLD.md) for
-the subsystem-by-subsystem rationale, the comparison to OpenHarness, and
-the delivery plan.
+the subsystem rationale, the comparison to OpenHarness, and the Kernel/Nemesis
+consumer boundary. Its original Nemesis roadmap is retained as historical context;
+the current delivery plan is below.
+
+See [the OpenCode V2 feature and architecture analysis](Kernel%20Harness/OpenCode%20V2%20Feature%20and%20Architecture%20Analysis.md)
+for the parity inventory, proposed Swift architecture, and Milestone 0 planning recommendations.
+
+See [Milestone 0: GUI-Ready Core Foundation](Kernel%20Harness/Milestone%200%20-%20GUI-Ready%20Core.md)
+for the agreed outcome, ordered implementation tasks, GUI-facing package contract,
+and acceptance criteria for preparing KernelHarnessKit for the Kernel app.
 
 ## License
 

@@ -1,6 +1,6 @@
 # KernelHarnessKit — High-Level Design
 
-**Status:** Draft
+**Status:** Draft — current product boundary and delivery scope are defined in [Milestone 0: GUI-Ready Core Foundation](Milestone%200%20-%20GUI-Ready%20Core.md). This HLD includes historical Nemesis design material; see the section labels below.
 **Date:** 2026-04-20
 **Authors:** Murilo Araujo, Claude
 
@@ -8,9 +8,9 @@
 
 ## 1. Purpose
 
-KernelHarnessKit is a Swift framework for building Apple Foundation Models harnesses. It provides orchestration infrastructure — native model-session integration, permission-aware tools, multi-agent coordination, deterministic workflow engine, workspace management, persistence, and streaming — so consumers define *what* their agents do without rebuilding *how* workflows execute.
+KernelHarnessKit is an open-source, low-level Swift harness library. It provides model orchestration, permission-aware tools, deterministic workflows, workspace capabilities, persistence contracts, and typed events. Foundation Models is the primary model/session interface; Kernel-owned model abstractions must also preserve provider identity, capabilities, configuration, and provider-specific options.
 
-The first consumer is **nemesis-harness**, the "Assistente Jurídico" service for the Nemesis judicial analysis platform. The framework must be general enough to serve future clients while being concrete enough to ship Nemesis in weeks, not months.
+The primary planned consumer is the closed-source **Kernel macOS app**, which imports the package directly and owns composition, presentation, app state, and its SwiftData adapter. **nemesis-harness**, the "Assistente Jurídico" service for the Nemesis judicial analysis platform, is a second, more complex consumer and a migration target for the evolving session/runtime APIs. The package must support both app and service compositions without requiring either a server or a particular persistence technology.
 
 ### Design Philosophy
 
@@ -22,70 +22,51 @@ From **OpenHarness** (HKUDS): the insight that an agent is decomposable into a s
 
 ### What This Is Not
 
-KernelHarnessKit uses Apple's Foundation Models APIs directly and accepts any provider package that conforms to Apple's `LanguageModel`. It is not a chat UI framework. It is the orchestration layer between model sessions and domain workflows.
+KernelHarnessKit uses Apple's Foundation Models APIs as its common model/session path and accepts conforming provider packages. A Kernel model-interface extension carries provider-specific capabilities that the common Foundation Models surface does not express. The package is not a UI framework and does not require an HTTP server. It is the orchestration layer between model execution, tools, durable sessions, and consumer-defined workflows.
 
 ---
 
 ## 2. Architecture Overview
 
 ```
+Kernel macOS app (primary)                nemesis-harness (complex service)
+┌──────────────────────────┐             ┌──────────────────────────┐
+│ SwiftUI, app composition │             │ Vapor routes, auth,      │
+│ SwiftData adapter,       │             │ domain tools, harnesses,  │
+│ Keychain, app policy     │             │ Postgres adapter         │
+└────────────┬─────────────┘             └────────────┬─────────────┘
+             │ direct Swift package API               │
+             └────────────────────┬───────────────────┘
+                                  ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Consumer Application                         │
-│  (e.g., nemesis-harness — Vapor HTTP server)                        │
+│ KernelHarnessKit — UI- and persistence-implementation independent   │
 │                                                                     │
-│  Routes, Auth, Domain Logic, Harness Definitions, System Prompts    │
-└────────┬───────────────────────────────────────────────────┬────────┘
-         │  uses                                             │ uses
-┌────────▼────────────────────────────────────────────────────▼───────┐
-│                       KernelHarnessKit                              │
-│                                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌──────────────────┐   │
-│  │  Engine   │  │  Tools   │  │ Providers │  │    Streaming     │   │
-│  │          │  │          │  │           │  │                  │   │
-│  │ AgentLoop │  │ BaseTool │  │ LLMProv.  │  │ AgentEvent       │   │
-│  │ QueryCtx  │  │ ToolReg. │  │ FM Session│  │ EventEmitter     │   │
-│  │ MaxTurns  │  │ ToolExec.│  │ Transcript│  │ SSEEncoder       │   │
-│  └─────┬────┘  │ ToolRes. │  │ Google    │  └──────────────────┘   │
-│        │       └─────┬────┘  └─────┬─────┘                         │
-│        │             │             │                                │
-│  ┌─────▼─────────────▼─────────────▼────────────────────────────┐   │
-│  │                    Coordination                               │   │
-│  │                                                               │   │
-│  │  SubAgent    TaskGroup-based delegation                       │   │
-│  │  Batch       Parallel sub-agents with concurrency control     │   │
-│  │  AskUser     Pause/resume for human-in-the-loop               │   │
-│  └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │   Harness    │  │  Workspace   │  │     Permissions          │   │
-│  │              │  │              │  │                          │   │
-│  │ PhaseEngine  │  │ WorkspacePr. │  │ PermissionChecker        │   │
-│  │ PhaseTypes   │  │ InMemory     │  │ PermissionMode           │   │
-│  │ HarnessDef.  │  │ PostgreSQL   │  │ PathRule, CmdRule         │   │
-│  │ Registry     │  │ FileSystem   │  │ ToolGating               │   │
-│  └──────────────┘  └──────────────┘  └──────────────────────────┘   │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │    Hooks     │  │     MCP      │  │      Persistence         │   │
-│  │              │  │              │  │                          │   │
-│  │ HookEvent    │  │ MCPClient    │  │ ThreadRepo (protocol)    │   │
-│  │ HookExecutor │  │ MCPToolBrdg. │  │ MessageRepo (protocol)   │   │
-│  │ PreToolUse   │  │ MCPConfig    │  │ WorkspaceRepo (protocol) │   │
-│  │ PostToolUse  │  │              │  │ HarnessRunRepo (proto.)  │   │
-│  └──────────────┘  └──────────────┘  └──────────────────────────┘   │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    Planning (Todos)                           │   │
-│  │                                                               │   │
-│  │  TodoList    In-memory plan state, exposed as tool + events   │   │
-│  │  TodoRepo    Protocol for persistent backing                  │   │
-│  └──────────────────────────────────────────────────────────────┘   │
+│ Session/runtime coordinator · Foundation Models + model extension  │
+│ Typed events · tools · permission policy · workspace · persistence  │
+│ contracts · MCP · deterministic phase harnesses · coordination     │
 └─────────────────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │ conformers/adapters
+                   System · OpenAI-compatible · Anthropic · custom
+
+Optional test/development CLI ─────┘ (exercises the same public API)
 ```
+
+The diagram shows the target boundary, not the current package manifest. The current SwiftPM package declares macOS 27, iOS 27, and watchOS 27, publishes one `KernelHarnessKit` library product, and has no app/UI or database runtime dependency. Persistence adapters are consumer-owned: SwiftData for the Kernel app and a suitable service adapter, such as Postgres, for Nemesis. The Core library remains directly embeddable and transport-neutral. Confirm the app's actual deployment target before changing the package platform declarations.
 
 ---
 
 ## 3. Subsystem Specifications
+
+The subsystem specifications and code snippets below include proposals from
+the original design draft; they are not all descriptions of implemented APIs.
+For current behavior, inspect the package sources. The GUI-ready runtime API is
+defined by Milestone 0 Task 0.2; update these specifications and both consumer
+examples against that API as implementation proceeds.
+
+For the first runtime version, a session admits one active turn. A concurrent
+submission returns a typed busy result; durable queue and steer semantics are
+deferred.
 
 ### 3.1 Engine — The Agent Loop
 
@@ -379,22 +360,41 @@ public struct MCPProxyTool: Sendable {
 }
 ```
 
-### 3.3 Model execution — Apple Foundation Models
+### 3.3 Model execution — Foundation Models and provider extensions
 
-KernelHarnessKit accepts a Foundation Models `LanguageModel` and creates a
-`LanguageModelSession` per agent run. The session owns the transcript, response
-streaming, generated tool arguments, and model-driven tool-call loop. System,
-Private Cloud Compute, and provider-package models use the same API surface.
+Foundation Models is KernelHarnessKit's primary common interface. The runtime
+uses `LanguageModel` / `LanguageModelSession` for supported provider behavior,
+including streaming and tools. The Kernel app and Nemesis service configure
+models through a Kernel-owned model boundary rather than constructing session
+objects inside their UI or route handlers.
 
-The harness layer remains responsible for selecting tools, supplying
-`ToolExecutionContext`, evaluating permissions, and projecting events into
-transport-facing `AgentEvent` values. Fixed structured output should use
+The Kernel boundary must expose model/provider identity, declared capabilities,
+configuration, and a typed extension for provider-specific features that
+Foundation Models does not represent. Credentials are supplied or resolved by
+the consumer and are not part of persisted session records. Initial provider
+validation targets a mock and an OpenAI-compatible Chat Completions conformer;
+`FoundationModelsUtilities` is the preferred candidate for the latter, subject
+to the compatibility spike in the milestone plan. Anthropic and custom
+conformers remain valid future providers.
+
+Each session has a persisted default model reference; each run records the
+model actually used. Changing the session default affects future turns and
+does not rewrite prior run history.
+
+KernelHarnessKit owns orchestration, tool selection, `ToolExecutionContext`,
+permission evaluation, and projection into its own events and durable domain
+state. A Foundation Models session is an execution object, not the durable
+source of truth for a conversation. Fixed structured output can use
 `@Generable`; runtime-defined output can use `DynamicGenerationSchema` and
-`GenerationSchema`.
+`GenerationSchema` where the selected provider supports them.
 
 ### 3.4 Streaming — The Event Layer
 
-All agent activity is surfaced as a typed event stream. The consumer (typically an HTTP handler) encodes these into SSE, WebSocket frames, or any transport.
+All agent activity is surfaced as a typed event stream. The Kernel app consumes
+the stream directly; a service consumer such as Nemesis may adapt it to SSE or
+another transport. Transport encoding is an optional adapter, not the runtime
+event contract. Session, turn, message, and tool-call identifiers must let the
+consumer associate events with durable state.
 
 **Inspiration from OpenHarness:** Seven frozen dataclass event types forming a `StreamEvent` union. KernelHarnessKit adopts the same pattern as a Swift enum with associated values.
 
@@ -439,7 +439,7 @@ public enum AgentStatus: String, Codable, Sendable {
 **SSE Encoding** is a thin utility, not a framework opinion:
 
 ```swift
-/// Encode AgentEvent as an SSE line. Consumer mounts this into their HTTP framework.
+/// Optional adapter: encode AgentEvent as an SSE line for service consumers.
 public struct SSEEncoder {
     public static func encode(_ event: AgentEvent) -> String {
         let type = event.eventType     // e.g., "agent_text_chunk", "harness_phase_start"
@@ -563,13 +563,16 @@ public protocol AskUserHandler: Sendable {
 }
 ```
 
-When the `ask_user` tool is called, the engine invokes this handler, which typically emits a `harnessHumanInput` SSE event and suspends via a `CheckedContinuation` until the consumer calls a resume endpoint.
+When the `ask_user` tool is called, the engine invokes this handler and
+suspends until the consumer supplies a response. The Kernel app can resume the
+operation through its direct Core integration; a service consumer may expose a
+resume endpoint. The runtime does not require an HTTP transport.
 
 ### 3.6 Harness Engine — Deterministic Workflows
 
 The harness engine is the "hard harness" — a phase state machine where the system controls flow and the LLM executes within constrained phases.
 
-**This is the differentiator.** OpenHarness provides the agent loop and coordination but does not have a concept of deterministic phase machines. The harness engine is original to KernelHarnessKit, designed from the Nemesis ADR's requirements.
+**This is a differentiator.** OpenHarness provides the agent loop and coordination but does not have a concept of deterministic phase machines. The phase engine originated from Nemesis workflow requirements and remains a general-purpose Core capability for future app workflows, including Kernel review harnesses.
 
 #### Phase Types
 
@@ -790,8 +793,8 @@ public enum FileSource: String, Codable, Sendable {
 | Implementation | Backing | Use Case |
 |----------------|---------|----------|
 | `InMemoryWorkspace` | Dictionary | Testing, ephemeral sessions |
-| `PostgresWorkspace` | `workspace_files` table | Production (Nemesis pattern) |
-| `FileSystemWorkspace` | Local disk | CLI tools, local development |
+| `LocalFileWorkspace` | Local filesystem | Project workspaces, app and local development |
+| Consumer adapter | Consumer-selected storage | For example, a service-owned Postgres workspace if required |
 
 ### 3.8 Permissions — Safety Boundaries
 
@@ -904,9 +907,27 @@ public enum MCPTransport: Codable, Sendable {
 | SSE | `SSEMCPClient` | MCPO proxies (mcp-brasil) |
 | Stdio | `StdioMCPClient` | Local MCP servers |
 
-### 3.11 Persistence — Repository Protocols
+### 3.11 Persistence — Consumer-Provided Adapters
 
-The framework defines repository protocols for all stateful entities. Consumers provide implementations backed by their database of choice.
+KernelHarnessKit defines persistence contracts; consumers provide storage
+implementations appropriate to their platform. The Kernel macOS app will use
+SwiftData behind an app-owned adapter. Nemesis may use a service database such
+as Postgres. Core domain types and session orchestration do not depend on either
+implementation. Existing repository protocols remain reusable where they fit,
+but a durable session, message, tool-lifecycle, and run-state contract is still
+required for the GUI-ready runtime. Persisted records are authoritative in the
+first milestone; events are a live stream emitted after durable state changes,
+not a stored event journal. Text deltas may be ahead of the latest durable
+assistant checkpoint; the Task 0.3 proposal in [Milestone 0](Milestone%200%20-%20GUI-Ready%20Core.md)
+sets the bound to 1 second or 4 KiB of new UTF-8 text, whichever comes first,
+with flushes at lifecycle boundaries and graceful cancellation.
+
+The GUI-ready coordinator uses one atomic, coordinator-facing `SessionStore`
+contract. The repository protocols sketched below remain useful for existing
+consumers and may be used inside an adapter, but separate repository calls are
+not sufficient for atomic turn admission, tool intent/result ordering, or
+recovery. The milestone document defines the proposed store operations and
+recovery rules.
 
 ```swift
 public protocol ThreadRepository: Sendable {
@@ -941,7 +962,11 @@ public protocol TokenUsageRepository: Sendable {
 }
 ```
 
-**The framework ships with PostgresNIO implementations as an optional target** (`KernelHarnessPostgres`), since PostgreSQL is the common case. Consumers who need DynamoDB, SQLite, or in-memory can implement the protocols directly.
+The current `Package.swift` publishes one library product and does not declare
+the Postgres sources as a target. The older optional `KernelHarnessPostgres`
+target shown in this HLD is a historical proposal, not a current package
+guarantee. A Postgres adapter can be restored or maintained separately if the
+Nemesis migration needs it; it must not become a dependency of the Core product.
 
 ### 3.12 Planning — Todo System
 
@@ -977,6 +1002,15 @@ Exposed to the agent via `write_todos` and `read_todos` tools. Changes emit `tod
 ---
 
 ## 4. Swift Package Structure
+
+The following tree and manifest sketch are a **conceptual design from the
+original Nemesis-oriented draft**, not a description of the current checkout.
+The current package publishes only `KernelHarnessKit`; use `Package.swift` and
+`swift package describe` as the source of truth for present targets. The GUI-
+ready milestone will evolve the existing layout rather than require this exact
+folder structure. Any persistence/provider adapters must remain optional and
+must not make the Core product depend on SwiftData, a server framework, or a
+single provider SDK.
 
 ```
 KernelHarnessKit/
@@ -1064,7 +1098,7 @@ KernelHarnessKit/
 │   │       ├── JSONSchema.swift               # JSON Schema type (object, properties, required, etc.)
 │   │       └── FoundationModels Generable / GenerationSchema
 │   │
-│   └── KernelHarnessPostgres/                 # Optional: PostgresNIO implementations
+│   └── KernelHarnessPostgres/                 # Historical optional adapter proposal; not a current target
 │       ├── PostgresThreadRepository.swift
 │       ├── PostgresMessageRepository.swift
 │       ├── PostgresTodoRepository.swift
@@ -1129,7 +1163,66 @@ let package = Package(
 
 ---
 
-## 5. How Nemesis Consumes KernelHarnessKit
+## 5. Consumer integrations: Kernel and Nemesis
+
+### 5.1 Kernel macOS app — primary GUI consumer
+
+The Kernel app consumes the Swift package directly; no local HTTP server or
+OpenCode-compatible API sits between the app and Core. The app composes the
+runtime and owns SwiftUI, view models, navigation, app policy, credentials,
+and SwiftData. Core owns the session/runtime behavior and exposes injected
+interfaces for model configuration, storage, workspace access, tools, and
+permission policy. Core also owns platform-neutral `Project` and `Location`
+domain models. A Project groups one or more Locations; each Location stores a
+standardized root URL for a concrete working directory, and a session references
+one Location. The app supplies persistence, path selection UI, sandbox/bookmark
+resolution, and the workspace implementation.
+
+The intended interaction is: configure a Kernel model and app adapters; create
+or reopen a workspace-scoped session; submit a turn; consume typed events; answer
+approval requests or cancel; then reload the session from the app's persistence
+adapter. The Task 0.2 domain, event, and coordinator contract is specified as a
+reviewable proposal in [Milestone 0](Milestone%200%20-%20GUI-Ready%20Core.md);
+Task 0.3 and Task 0.4 define its storage and provider implementation details.
+
+**Composition example (behavioral sketch, not compilable API):**
+
+1. The app selects a model descriptor and supplies its credential resolver.
+2. The app creates a Core runtime with its SwiftData-backed session store,
+   project-root workspace, tool registry, and app-defined permission policy.
+3. A view model asks Core to create or reopen a session and submits user input.
+4. The view model consumes typed events to render text and tool progress; for an
+   approval event, it presents the app's prompt and sends the user's decision
+   back to Core.
+5. On relaunch, the app loads the session and ordered messages from its adapter
+   through Core and can show the completed or interrupted run state.
+
+This is the smaller consumer example. After the Task 0.2 contract is reviewed
+and implemented, DocC should include a compilable version and the Nemesis
+migration example should exercise the same contract with additional
+server-side capabilities.
+
+### 5.2 Nemesis service — complex consumer and migration target
+
+Nemesis remains a valuable second consumer. It combines domain-specific tools,
+MCP servers, deterministic harness definitions, authentication, HTTP routes,
+and service persistence. Those concerns remain in `nemesis-harness`; the shared
+session/runtime behavior belongs in KernelHarnessKit. As the new public session
+and model APIs are defined, Nemesis should migrate to them and serve as a
+complex-consumer integration test alongside the Kernel GUI integration.
+
+The migrated example should demonstrate a richer composition than the GUI:
+multiple domain tool groups, configured MCP servers, a deterministic phase
+workflow, service authentication/routes, and a Postgres-backed storage adapter
+owned by the service. It must still use the same Core session and model APIs as
+the Kernel app; complexity belongs in the consumer composition, not in a
+separate server-only Core API.
+
+The following is the **historical Nemesis integration sketch from the original
+HLD**. It records the former composition and is not a statement that the shown
+types or Postgres target are in the current package API. Update this example to
+the new session/runtime API during the Nemesis migration, preserving its
+domain-specific tools, harnesses, MCP composition, and service-owned storage.
 
 ```swift
 // In nemesis-harness/Sources/configure.swift
@@ -1176,7 +1269,11 @@ func configure(_ app: Application) throws {
 }
 ```
 
-The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness definitions, system prompts in Portuguese, MCP server connections, and the Vapor application lifecycle. The framework owns everything else.
+In this historical arrangement, `nemesis-harness` owns routes, auth middleware,
+domain harness definitions, Portuguese system prompts, MCP server connections,
+and the Vapor application lifecycle. The migrated arrangement should keep those
+service responsibilities in Nemesis while using the same durable session and
+model/runtime contracts as the Kernel app.
 
 ---
 
@@ -1194,10 +1291,10 @@ The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness d
 | **Deterministic workflows** | Not present | `HarnessEngine` phase state machine (5 phase types) |
 | **Permission model** | Default/Auto/Plan modes + path rules | Protocol-based, consumer-configurable |
 | **Hook system** | `PreToolUse`/`PostToolUse` via `HookExecutor` | Same pattern, Swift actor-based |
-| **Persistence** | In-memory (conversation state) | Protocol-based repositories with PostgresNIO optional target |
-| **Workspace** | Local filesystem (cwd-based) | Protocol-based (in-memory, Postgres, filesystem) |
+| **Persistence** | In-memory (conversation state) | Core storage contracts; app-owned SwiftData for Kernel, service adapter for Nemesis |
+| **Workspace** | Local filesystem (cwd-based) | Protocol-based (in-memory, local filesystem, consumer-supplied adapters) |
 | **Packaging** | Python package (pip) | Swift Package Manager (SPM) |
-| **Target** | CLI tool (interactive terminal) | Library (embedded in server applications) |
+| **Target** | CLI tool (interactive terminal) | Embeddable library (Kernel macOS app primary; Nemesis service also consumes it) |
 
 **Key divergences and why:**
 
@@ -1205,9 +1302,9 @@ The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness d
 
 2. **Harness engine is new.** OpenHarness is fundamentally an autonomous agent runtime — the model always drives. KernelHarnessKit adds the hard harness (deterministic phase machine) as a first-class execution strategy because domain workflows like "case research" demand predictable, auditable phase progression that the LLM cannot skip or reorder.
 
-3. **Protocol-based persistence.** OpenHarness keeps everything in memory (it's a CLI tool). KernelHarnessKit is a server library where state must survive across requests and reconnections. Repository protocols with optional PostgresNIO implementations let consumers choose their backing store.
+3. **Protocol-based persistence.** OpenHarness keeps everything in memory (it's a CLI tool). KernelHarnessKit separates durable session behavior from storage technology. Core defines the contracts; Kernel supplies SwiftData and service consumers may supply Postgres or another adapter.
 
-4. **No CLI, no UI.** OpenHarness includes a full TUI with keybindings, themes, and vim mode. KernelHarnessKit is headless — it emits events, and the consumer builds the UI.
+4. **No bundled UI.** OpenHarness includes a full TUI with keybindings, themes, and vim mode. KernelHarnessKit remains headless and emits typed events; the Kernel app builds the UI. A small development/test CLI is optional and is not a product UI.
 
 ---
 
@@ -1215,18 +1312,20 @@ The consumer (`nemesis-harness`) owns: routes, auth middleware, domain harness d
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Premature abstraction before second consumer | Over-engineered interfaces that don't fit real needs | Start protocol-heavy only where OpenHarness validates the pattern; keep Nemesis-specific code in nemesis-harness; refactor boundary when second consumer arrives |
+| Consumer needs diverge between app and service | App and backend integrations drift or force UI/server concerns into Core | Validate the same session/model contracts with the Kernel app and the more complex Nemesis migration; keep app UI and service routes/adapters outside Core |
 | Runtime-defined tool schemas may not map to statically generated tool arguments | Some remote MCP tools may not fit Foundation Models' typed `Tool` API | Adapt supported JSON Schema shapes with `DynamicGenerationSchema`; retain MCP bridge schemas for server-facing metadata |
 | Structured concurrency cancellation semantics | Sub-agent failures may cascade unexpectedly | Follow OpenHarness pattern: `return_exceptions=True` equivalent — catch errors per sub-agent and return as `ToolResult(isError: true)` |
 | Provider package differences | External model packages may differ in capabilities and availability | Query Foundation Models capabilities and handle unsupported operations at the feature boundary |
 | Memory pressure from concurrent sub-agents | N simultaneous LLM contexts in-process | Configurable `BatchExecutor.concurrency` (default 5); back-pressure via TaskGroup slot limiting |
-| Framework coupling to Vapor | Limits consumers using Hummingbird or other Swift HTTP frameworks | Framework has zero Vapor dependency — only `KernelHarnessPostgres` uses PostgresNIO (which is framework-agnostic). SSE encoding is a pure function, not a Vapor response type. |
+| Framework coupling to a consumer stack | Limits direct app embedding or alternate service hosts | Keep SwiftUI, SwiftData, Vapor, and Postgres adapters outside Core; transport encoders remain optional consumer adapters |
 
 ---
 
-## 8. MVP Scope
+## 8. Historical Nemesis MVP Scope (superseded)
 
-The MVP must be sufficient to build nemesis-harness. This means:
+This was the original MVP definition for building `nemesis-harness`. It is
+preserved as project history, not as the current package roadmap. The agreed
+GUI-ready scope and acceptance criteria are in [Milestone 0](Milestone%200%20-%20GUI-Ready%20Core.md).
 
 **In scope (MVP):**
 
@@ -1253,7 +1352,10 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 ---
 
-## 9. Delivery Sequence
+## 9. Historical Delivery Sequence (superseded)
+
+The week-by-week sequence below belongs to the original Nemesis MVP and is not
+the current delivery plan. Use the ordered tasks in [Milestone 0](Milestone%200%20-%20GUI-Ready%20Core.md).
 
 | Week | Milestone | Deliverable |
 |------|-----------|-------------|
@@ -1269,14 +1371,18 @@ The MVP must be sufficient to build nemesis-harness. This means:
 
 ---
 
-## 10. Open Questions
+## 10. Technical Design Notes
 
-1. **Tool argument strategy.** Prefer Foundation Models `@Generable` types for statically defined tool arguments and `DynamicGenerationSchema` for runtime schemas such as MCP tool definitions.
+The following notes are implementation topics from the original draft, not
+unresolved product-boundary decisions. The current package and Milestone 0 plan
+take precedence where they differ.
 
-2. **Context window management.** OpenHarness has sophisticated auto-compaction (microcompact → full LLM summarization). For MVP, should KernelHarnessKit ship simple truncation (drop oldest messages) or invest in compaction? Recommendation: simple truncation for MVP, compaction as post-MVP enhancement.
+1. **Tool argument strategy.** The package already has typed tool inputs, JSON Schema descriptions, and a Foundation Models adapter. Preserve those capabilities; validate provider-specific schema support at the model boundary.
 
-3. **Structured output enforcement.** For `llmSingle` phases, use Foundation Models `@Generable` or `GenerationSchema`, then apply application-specific validation before writing phase output.
+2. **Context window management.** Compaction and summarization are deferred beyond the first GUI-ready vertical slice. Do not infer a truncation policy from this historical draft.
 
-4. **MCP SDK.** Should KernelHarnessKit depend on `swift-mcp-sdk` or implement the MCP client protocol from scratch? The official SDK may add unnecessary weight. Recommendation: implement a minimal MCP client (JSON-RPC 2.0 over HTTP/SSE) — the protocol is simple enough that a dependency isn't justified for the client side.
+3. **Structured output enforcement.** For `llmSingle` phases, use Foundation Models `@Generable` or `GenerationSchema` where supported, then apply application-specific validation before writing phase output.
 
-5. **Thread safety model.** The `HarnessEngine` uses `actor` for safe mutation. Should `ToolRegistry` also be an actor, or is `@unchecked Sendable` with a lock sufficient? Recommendation: `ToolRegistry` is write-once-read-many — register at startup, read during execution. A lock-free immutable snapshot pattern is sufficient.
+4. **MCP SDK.** The current package already implements JSON-RPC and HTTP/SSE MCP clients. Reassess dependencies only if future transport or protocol requirements justify them; MCP expansion is outside Milestone 0.
+
+5. **Concurrency model.** The session coordinator must serialize turns per session and expose cancellation explicitly. Existing tools, registries, and deterministic harnesses should retain their Swift 6 concurrency guarantees as their shared APIs evolve.
