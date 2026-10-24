@@ -2,8 +2,10 @@ import Foundation
 
 /// Persistence for ``Thread`` entities.
 ///
-/// Implementations are consumer-provided; KernelHarnessPostgres ships a
-/// PostgresNIO-backed implementation for the common case.
+/// Implementations are consumer-provided. The current package product does not
+/// ship a database-specific adapter. The GUI-ready SessionStore is a separate
+/// transactional boundary and does not replace this repository for existing
+/// thread-based consumers.
 public protocol ThreadRepository: Sendable {
     /// Insert a new thread. Returns the stored thread (may differ from the
     /// input if the repository mutates ids or timestamps).
