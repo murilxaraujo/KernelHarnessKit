@@ -100,6 +100,12 @@ private struct ShellRunResult: Sendable, Hashable {
     let timedOut: Bool
 }
 
+private enum ProcessWaitEvent {
+    case terminated
+    case deadlineReached
+    case timeoutCancelled
+}
+
 private final class ShellSubprocess: @unchecked Sendable {
     private let command: String
     private let workingDirectory: URL
@@ -124,15 +130,21 @@ private final class ShellSubprocess: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let terminationEvents = AsyncStream<Void> { continuation in
+            process.terminationHandler = { _ in
+                continuation.yield(())
+                continuation.finish()
+            }
+        }
+
         lock.withLock { self.process = process }
         try process.run()
 
         async let stdoutData = readAll(stdoutPipe.fileHandleForReading)
         async let stderrData = readAll(stderrPipe.fileHandleForReading)
 
-        let timedOut = await waitForExitOrTimeout(process: process)
-        if timedOut { terminate() }
-        let status = await waitForExit(process: process)
+        let timedOut = await waitForExitOrTimeout(process: process, terminationEvents: terminationEvents)
+        let status = process.terminationStatus
 
         let stdout = String(data: await stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: await stderrData, encoding: .utf8) ?? ""
@@ -152,26 +164,39 @@ private final class ShellSubprocess: @unchecked Sendable {
         }.value
     }
 
-    private func waitForExit(process: Process) async -> Int32 {
-        await Task.detached {
-            process.waitUntilExit()
-            return process.terminationStatus
-        }.value
-    }
-
-    private func waitForExitOrTimeout(process: Process) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+    private func waitForExitOrTimeout(
+        process: Process,
+        terminationEvents: AsyncStream<Void>
+    ) async -> Bool {
+        await withTaskGroup(of: ProcessWaitEvent.self) { group in
             group.addTask {
-                process.waitUntilExit()
+                for await _ in terminationEvents {
+                    return .terminated
+                }
+                return .terminated
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(self.timeoutSeconds) * 1_000_000_000)
+                    return .deadlineReached
+                } catch {
+                    return .timeoutCancelled
+                }
+            }
+
+            switch await group.next() {
+            case .terminated:
+                group.cancelAll()
+                _ = await group.next()
+                return false
+            case .deadlineReached:
+                let timedOut = process.isRunning
+                if timedOut { terminate() }
+                _ = await group.next()
+                return timedOut
+            case .timeoutCancelled, .none:
                 return false
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(self.timeoutSeconds) * 1_000_000_000)
-                return process.isRunning
-            }
-            let timedOut = await group.next() ?? false
-            group.cancelAll()
-            return timedOut
         }
     }
 }
